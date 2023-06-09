@@ -195,6 +195,7 @@ stripmapApp_xml = f'''<stripmapApp>
         <component name="secondary">
             <catalog>reference.xml</catalog>
         </component>
+        <property name="demFilename">/home/data/DEM/MIX/TDX_ASTER/Holuhraun-20150622/50m/Iceland.dem</property>
     </component>
 </stripmapApp>'''
 
