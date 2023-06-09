@@ -29,6 +29,15 @@ print(program_start)
 
 print("\n - Initialising...\n")
 
+# cleanup
+
+os.system("rm -r reference*")
+os.system("rm -r secondary*")
+os.system("rm *.xml")
+os.system("rm -r PICKLE")
+
+#retrieve arguments
+
 '''
 EVENTUALLY MAKE IT A COMMAND LINE ARGUMENT, for now hardcoded
 '''
@@ -136,7 +145,7 @@ reference_xml = f'''<component name="Reference">
     <property name="LEADERFILE">
         ./reference/LEA_01.001
     </property>
-    <property name="OUTPUT">reference.raw</property>
+    <property name="OUTPUT">reference_preprocess</property>
     <property name="ORBIT_TYPE">
         <value>ODR</value>
     </property>
@@ -166,7 +175,7 @@ secondary_xml = f'''<component name="Secondary">
     <property name="LEADERFILE">
         ./secondary/LEA_01.001
     </property>
-    <property name="OUTPUT">secondary.raw</property>
+    <property name="OUTPUT">secondary_preprocess</property>
     <property name="ORBIT_TYPE">
         <value>ODR</value>
     </property>
@@ -186,6 +195,8 @@ f.close()
 #stripmapApp.xml
 print("\nstripmapApp.xml:")
 
+DEM_loc = "/home/data/DEM/ArcticDEM/v2.0/Iceland_r.dem"
+
 stripmapApp_xml = f'''<stripmapApp>
     <component name="insar">
         <property  name="Sensor name">ERS</property>
@@ -193,9 +204,9 @@ stripmapApp_xml = f'''<stripmapApp>
             <catalog>reference.xml</catalog>
         </component>
         <component name="secondary">
-            <catalog>reference.xml</catalog>
+            <catalog>secondary.xml</catalog>
         </component>
-        <property name="demFilename">/home/data/DEM/MIX/TDX_ASTER/Holuhraun-20150622/50m/Iceland.dem</property>
+        <!-- <property name="demFilename">{DEM_loc}</property> -->
     </component>
 </stripmapApp>'''
 
@@ -205,7 +216,9 @@ f = open("stripmapApp.xml", "w")
 f.write(stripmapApp_xml)
 f.close()
 
+### START ISCE
 
+# os.system("stripmapApp.py stripmapApp.xml --start=startup --end=preprocess")
 
 
 
