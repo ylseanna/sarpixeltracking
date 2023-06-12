@@ -80,8 +80,12 @@ else:
     secondary = file1
 
 
-print("Reference:\n  Name:          "+reference['filename']+"\n  Begin time:    "+reference['begintime']+"\n  End time:      "+reference['endtime']+"\n  Sensor:        "+reference['sensor']+"\n  File location: "+reference['fileloc'])
-print("\nSecondary:\n  Name:          "+secondary['filename']+"\n  Begin time:    "+secondary['begintime']+"\n  End time:      "+secondary['endtime']+"\n  Sensor:        "+secondary['sensor']+"\n  File location: "+secondary['fileloc'])
+print("Reference:\n  Name:          "+reference['filename']+"\n  Begin time:    "
+      +reference['begintime']+"\n  End time:      "+reference['endtime']+"\n  Sensor:        "
+      +reference['sensor']+"\n  File location: "+reference['fileloc'])
+print("\nSecondary:\n  Name:          "+secondary['filename']+"\n  Begin time:    "
+      +secondary['begintime']+"\n  End time:      "+secondary['endtime']+"\n  Sensor:        "
+      +secondary['sensor']+"\n  File location: "+secondary['fileloc'])
 
 timedelta = timestamp(secondary["begintime"]) - timestamp(reference["begintime"])
 
