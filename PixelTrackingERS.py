@@ -9,9 +9,8 @@ Requires a file called MetaData.db containting the file locations of all files u
 ### imports
 
 import os, glob
-import sqlite3 #database
-from datetime import datetime #timemanagement
-
+import sqlite3
+from datetime import datetime
 
 ### utils
 
@@ -35,6 +34,13 @@ os.system("rm -r reference*")
 os.system("rm -r secondary*")
 os.system("rm *.xml")
 os.system("rm -r PICKLE")
+os.system("rm -r offsets")
+os.system("rm -r misreg")
+os.system("rm -r interferogram")
+os.system("rm -r geometry")
+os.system("rm -r coregisteredSlc")
+os.system("rm demLat*")
+
 
 #retrieve arguments
 
@@ -58,11 +64,13 @@ def query(query_str):
 
     cursor = conn.execute(query_str)
 
-    return {'results':
+    results = {'results':
             [dict(zip([column[0] for column in cursor.description], row))
              for row in cursor.fetchall()]}
 
     conn.close()
+
+    return results
 
 files = query("SELECT * from frames WHERE filename = '{}' OR filename = '{}'".format(file1, file2))
 
@@ -201,6 +209,7 @@ print("\nstripmapApp.xml:")
 
 DEM_loc = "/home/data/DEM/ArcticDEM/v2.0/Iceland_r.dem"
 
+
 stripmapApp_xml = f'''<stripmapApp>
     <component name="insar">
         <property  name="Sensor name">ERS</property>
@@ -211,6 +220,7 @@ stripmapApp_xml = f'''<stripmapApp>
             <catalog>secondary.xml</catalog>
         </component>
         <!-- <property name="demFilename">{DEM_loc}</property> -->
+        <property name="do denseoffsets">True</property>
     </component>
 </stripmapApp>'''
 
@@ -220,9 +230,14 @@ f = open("stripmapApp.xml", "w")
 f.write(stripmapApp_xml)
 f.close()
 
+### Write start of run
+
+print("\n - Initalisation complete, writing start of run")
+
+
 ### START ISCE
 
-# os.system("stripmapApp.py stripmapApp.xml --start=startup --end=preprocess")
+os.system("stripmapApp.py stripmapApp.xml --start=startup --end=dense_offsets")
 
 
 
