@@ -28,12 +28,16 @@ def argparse():
             help='Input filename 2 as found in the metadata database, typically secondary')
     parser.add_argument('-d', '--dem', dest='DEM_file', type=str, required=False,
             help='Input dem file as found in the metadata database, if not provided will default to SRTM file')
-    parser.add_argument('-do', '--do_denseOffsets', dest='denseOffsets', type=bool, required=False, default=False,
+    parser.add_argument('--init', default=True, action=argparse.BooleanOptionalAction, dest='init', required=False,
+            help='determines whether to do go through the initialisation phase of the program, e.g. setting up files and folder structure etc. ')
+    parser.add_argument('--isce', default=True, action=argparse.BooleanOptionalAction, dest='isce', required=False,
+            help='determines whether to run ISCE preprocessing step')
+    parser.add_argument('--denseOffsets', default=False, action=argparse.BooleanOptionalAction, dest='denseOffsets', required=False,
             help='determines whether to do dense Ampcor dense offsets as provided in the ISCE program')
 
     return parser.parse_args()
 
-def init():
+def init(file1, file2):
     '''Main function that prepares the pipeline'''
 
     ### Imports
@@ -170,7 +174,8 @@ def init():
     print("\nreference.xml:")
 
 
-    reference_xml = f'''<component name="Reference">
+    reference_xml = f'''
+    <component name="Reference">
         <property name="IMAGEFILE">
             ./reference/DAT_01.001
         </property>
@@ -200,7 +205,8 @@ def init():
 
     print("\nsecondary.xml:")
 
-    secondary_xml = f'''<component name="Secondary">
+    secondary_xml = f'''
+    <component name="Secondary">
         <property name="IMAGEFILE">
             ./secondary/DAT_01.001
         </property>
@@ -230,7 +236,8 @@ def init():
     DEM_loc = "/home/data/DEM/ArcticDEM/v2.0/Iceland_r.dem"
 
 
-    stripmapApp_xml = f'''<stripmapApp>
+    stripmapApp_xml = f'''
+    <stripmapApp>
         <component name="insar">
             <property  name="Sensor name">ERS</property>
             <component name="reference">
@@ -250,6 +257,8 @@ def init():
     f.write(stripmapApp_xml)
     f.close()
 
+    print("\n - Initalisation complete")
+
 
 def main():
     '''
@@ -257,6 +266,7 @@ def main():
     '''
 
     from datetime import datetime
+    import os
 
     print("\n*** ESR 1&2 - Pixel Tracking Pipeline ***\n")
 
@@ -264,19 +274,26 @@ def main():
 
     print(program_start, "\n")
 
+    ### COMMAND LINE ARGUMENTS
+
     inps = argparse()
 
-    print(inps)
+    ### INITIALISATION STEP
 
-    # init()
-
-    print("\n - Initalisation complete, writing start of run")
-
+    if inps.init == True:
+        init(inps.file1, inps.file2)
+    else:
+        print("\n\tInitalisation skipped...\n")
+    
+    
     ### START ISCE
 
-    # os.system("stripmapApp.py stripmapApp.xml --start=startup --end=dense_offsets")
+    if inps.isce == True:
+        os.system("stripmapApp.py stripmapApp.xml --start=startup --end=topo")
+    else:
+        print("\n\tISCE skipped...\n")
 
-    # Finish
+    ### FINISH
 
     program_end = datetime.now()
 
