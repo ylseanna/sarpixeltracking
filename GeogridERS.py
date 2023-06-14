@@ -122,7 +122,7 @@ def loadMetadata(indir):
 
     frames = []
     for swath in range(1):
-        inxml = os.path.join(indir, 'reference_preprocess.slc.xml'.format(swath))
+        inxml = os.path.join(indir, 'reference_preprocess.slc.xml')
         if os.path.exists(inxml):
             ifg = loadProduct(inxml)
             frames.append(ifg)
