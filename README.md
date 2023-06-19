@@ -6,7 +6,7 @@ The database scripts can be adjusted to create a small sqlite database of files 
 
 Currently it is set up to just ingest data from a particular folder
 
-# To-do
+## To-do
 
 - Make file inputs a command line argument
 - Give command line argument for doing DenseOffsets

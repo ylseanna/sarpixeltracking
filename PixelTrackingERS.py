@@ -1,51 +1,231 @@
 #!/usr/bin/env python
 
-'''
+"""
 Base function for pixel tracking for this project
 
 Requires a file called MetaData.db containting the file locations of all files used in this project
-'''
+
+requires: gdal, geographiclib
+"""
 
 ### utils
+
 
 def timestamp(string):
     from datetime import datetime
 
     return datetime.strptime(string, "%Y-%m-%dT%H:%M:%S")
 
+
 ### Main functions
 
+
 def argparse():
-    '''
+    """
     Command line parser. Adapted from testGeogrid.py
-    '''
+    """
     import argparse
 
-    parser = argparse.ArgumentParser(prog='ERS Pixel Tracking pipeline', description='Completes a full run of the ERS pixel tracking pipelines for single swath images')
-    parser.add_argument('-f1', '--file1', dest='file1', type=str, required=False,
-            help='Input filename 1 as found in the metadata database, typically reference')
-    parser.add_argument('-f2', '--file2', dest='file2', type=str, required=False,
-            help='Input filename 2 as found in the metadata database, typically secondary')
-    parser.add_argument('-d', '--dem', dest='DEM_file', type=str, required=False,
-            help='Input dem file as found in the metadata database, if not provided will default to SRTM file')
-    parser.add_argument('--init', default=True, action=argparse.BooleanOptionalAction, dest='init', required=False,
-            help='determines whether to do go through the initialisation phase of the program, e.g. setting up files and folder structure etc. ')
-    parser.add_argument('--isce', default=True, action=argparse.BooleanOptionalAction, dest='isce', required=False,
-            help='determines whether to run ISCE preprocessing step')
-    parser.add_argument('--denseOffsets', default=False, action=argparse.BooleanOptionalAction, dest='denseOffsets', required=False,
-            help='determines whether to do dense Ampcor dense offsets as provided in the ISCE program')
-
+    parser = argparse.ArgumentParser(
+        prog="ERS Pixel Tracking pipeline",
+        description="Completes a full run of the ERS pixel tracking pipelines for single frame (stripmap) images.",
+    )
+    parser.add_argument(
+        "-f1",
+        "--file1",
+        dest="file1",
+        type=str,
+        required=False,
+        help="Input filename 1 as found in the metadata database, typically reference.",
+    )
+    parser.add_argument(
+        "-f2",
+        "--file2",
+        dest="file2",
+        type=str,
+        required=False,
+        help="Input filename 2 as found in the metadata database, typically secondary.",
+    )
+    parser.add_argument(
+        "-d",
+        "--dem",
+        dest="DEM_file",
+        type=str,
+        required=False,
+        help="Input dem file as found in the metadata database, if not provided will default to SRTM file.",
+    )
+    parser.add_argument(
+        "--init",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="init",
+        required=False,
+        help="Determines whether to do go through the initialisation phase of the program, e.g. setting up files and folder structure etc. ",
+    )
+    parser.add_argument(
+        "--isce",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="isce",
+        required=False,
+        help="Determines whether to run ISCE preprocessing step.",
+    )
+    parser.add_argument(
+        "--denseOffsets",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        dest="denseOffsets",
+        required=False,
+        help="Determines whether to do dense Ampcor dense offsets as provided in the ISCE program.",
+    )
+    parser.add_argument(
+        "--geoTIFF",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="geotiff",
+        required=False,
+        help="Determines whether to convert the coregistered .slc files to geoTIFF format in preperation for Geogrid and autoRIFT.",
+    )
+    parser.add_argument(
+        "--Geogrid",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="geogrid",
+        required=False,
+        help="Determines whether to run Geogrid.",
+    )
     return parser.parse_args()
 
+
+def generateGeoTIFF():
+    print(" - Generating GeoTIFF\n")
+    from osgeo import gdal
+    import numpy as np
+
+    print("Getting geometry bounds:")
+
+    lats = gdal.Open("geometry/lat.rdr.full")
+    lons = gdal.Open("geometry/lon.rdr.full")
+
+    lat = np.array(lats.GetRasterBand(1).ReadAsArray())
+    lon = np.array(lons.GetRasterBand(1).ReadAsArray())
+
+    lats = None
+    lons = None
+
+    height, width = np.shape(lat)
+
+    UpperLeft = (lat[0, -1], lon[0, -1])
+    UpperRight = (lat[0, 0], lon[0, 0])
+    LowerLeft = (lat[-1, -1], lon[-1, -1])
+    LowerRight = (lat[-1, 0], lon[-1, 0])
+
+    print("Upper left corner:", UpperLeft)
+    print("Upper right corner:", UpperRight)
+    print("Lower right corner", LowerRight)
+    print("Lower left corner", LowerLeft)
+
+    import os
+
+    ### map project reference slc
+
+    print("\nMap projecting the reference .slc image using GDAL\n")
+
+    # cleanup
+
+    os.system("rm -r reference_geotiff")
+
+    os.mkdir("reference_geotiff")
+
+    out_filename = "reference_geotiff/reference.tif"
+
+    in_filename = "reference_slc/reference.slc"
+
+    driver = gdal.GetDriverByName("GTiff")
+
+    in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
+    arr = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
+
+    out_ds = driver.Create(
+        out_filename, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32
+    )
+    out_ds.SetProjection(in_ds.GetProjection())
+
+    band = out_ds.GetRasterBand(1)
+    band.WriteArray(arr)
+    band.FlushCache()
+    band.ComputeStatistics(False)
+
+    in_ds = None
+    out_ds = None
+
+    command = f"gdal_translate \
+                    -gcp 0 0 {UpperLeft[1]} {UpperLeft[0]} \
+                    -gcp {width} 0 {UpperRight[1]} {UpperRight[0]} \
+                    -gcp {width} {height} {LowerRight[1]} {LowerRight[0]} \
+                    -gcp 0 {height} {LowerLeft[1]} {LowerLeft[0]} \
+                    reference_geotiff/reference.tif reference_geotiff/reference_projec.tif"
+
+    os.system(command)
+
+    os.system(
+        "gdalwarp -r bilinear -t_srs EPSG:4659 -et 0 reference_geotiff/reference_projec.tif reference_geotiff/reference_warp.tif"
+    )
+
+    ### map project secondary slc
+
+    print("\nMap projecting the coregistered secondary .slc image using GDAL\n")
+
+    # cleanup
+
+    os.system("rm -r secondary_geotiff")
+
+    os.mkdir("secondary_geotiff")
+
+    out_filename = "secondary_geotiff/secondary.tif"
+
+    in_filename = "coregisteredSlc/refined_coreg.slc"
+
+    driver = gdal.GetDriverByName("GTiff")
+
+    in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
+    arr = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
+
+    out_ds = driver.Create(
+        out_filename, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32
+    )
+    out_ds.SetProjection(in_ds.GetProjection())
+
+    band = out_ds.GetRasterBand(1)
+    band.WriteArray(arr)
+    band.FlushCache()
+    band.ComputeStatistics(False)
+
+    in_ds = None
+    out_ds = None
+
+    command = f"gdal_translate \
+                    -gcp 0 0 {UpperLeft[1]} {UpperLeft[0]} \
+                    -gcp {width} 0 {UpperRight[1]} {UpperRight[0]} \
+                    -gcp {width} {height} {LowerRight[1]} {LowerRight[0]} \
+                    -gcp 0 {height} {LowerLeft[1]} {LowerLeft[0]} \
+                    secondary_geotiff/secondary.tif secondary_geotiff/secondary_projec.tif"
+
+    os.system(command)
+
+    os.system(
+        "gdalwarp -r bilinear -t_srs EPSG:4659 -et 0 secondary_geotiff/secondary_projec.tif secondary_geotiff/secondary_warp.tif"
+    )
+
+
 def init(file1, file2):
-    '''Main function that prepares the pipeline'''
+    """function that prepares the pipeline"""
 
     ### Imports
 
     import os, glob
     import sqlite3
-    from datetime import datetime   
-
+    from datetime import datetime
 
     ### INPUT
 
@@ -65,19 +245,14 @@ def init(file1, file2):
     os.system("rm -r denseOffsets")
     os.system("rm demLat*")
 
+    # retrieve arguments
 
-    #retrieve arguments
-
-    '''
-    EVENTUALLY MAKE IT A COMMAND LINE ARGUMENT, for now hardcoded
-    '''
-
+    """ eventually change to input """
 
     file1 = "ER01_SAR_IM__0P_19920524T123500_19920524T123517_UPA_04477_0000.CEOS.tar.gz"
     file2 = "ER01_SAR_IM__0P_19930718T123508_19930718T123525_UPA_10489_0000.CEOS.tar.gz"
 
-    print("Files selected:\n"+file1+"\n"+file2)
-
+    print("Files selected:\n" + file1 + "\n" + file2)
 
     ### QUERY FILES and ASSIGN REF AND SEC
 
@@ -88,21 +263,28 @@ def init(file1, file2):
 
         cursor = conn.execute(query_str)
 
-        results = {'results':
-                [dict(zip([column[0] for column in cursor.description], row))
-                for row in cursor.fetchall()]}
+        results = {
+            "results": [
+                dict(zip([column[0] for column in cursor.description], row))
+                for row in cursor.fetchall()
+            ]
+        }
 
         conn.close()
 
         return results
 
-    files = query("SELECT * from frames WHERE filename = '{}' OR filename = '{}'".format(file1, file2))
+    files = query(
+        "SELECT * from frames WHERE filename = '{}' OR filename = '{}'".format(
+            file1, file2
+        )
+    )
 
-    file1, file2 = files['results']
+    file1, file2 = files["results"]
 
     print("\nFiles succesfully queried:\n")
 
-    timedelta = timestamp(file1['begintime']) - timestamp(file2['begintime'])
+    timedelta = timestamp(file1["begintime"]) - timestamp(file2["begintime"])
 
     if timedelta.total_seconds() < 0:
         reference = file1
@@ -111,17 +293,42 @@ def init(file1, file2):
         reference = file2
         secondary = file1
 
-
-    print("Reference:\n  Name:          "+reference['filename']+"\n  Begin time:    "
-        +reference['begintime']+"\n  End time:      "+reference['endtime']+"\n  Sensor:        "
-        +reference['sensor']+"\n  File location: "+reference['fileloc'])
-    print("\nSecondary:\n  Name:          "+secondary['filename']+"\n  Begin time:    "
-        +secondary['begintime']+"\n  End time:      "+secondary['endtime']+"\n  Sensor:        "
-        +secondary['sensor']+"\n  File location: "+secondary['fileloc'])
+    print(
+        "Reference:\n  Name:          "
+        + reference["filename"]
+        + "\n  Begin time:    "
+        + reference["begintime"]
+        + "\n  End time:      "
+        + reference["endtime"]
+        + "\n  Sensor:        "
+        + reference["sensor"]
+        + "\n  File location: "
+        + reference["fileloc"]
+    )
+    print(
+        "\nSecondary:\n  Name:          "
+        + secondary["filename"]
+        + "\n  Begin time:    "
+        + secondary["begintime"]
+        + "\n  End time:      "
+        + secondary["endtime"]
+        + "\n  Sensor:        "
+        + secondary["sensor"]
+        + "\n  File location: "
+        + secondary["fileloc"]
+    )
 
     timedelta = timestamp(secondary["begintime"]) - timestamp(reference["begintime"])
 
-    print("\nPair information:\n  Baseline:      "+str(timedelta)+"\n  Track:         "+str(reference['track'])+"\n  Frame:         "+str(reference['frame'])+"")
+    print(
+        "\nPair information:\n  Baseline:      "
+        + str(timedelta)
+        + "\n  Track:         "
+        + str(reference["track"])
+        + "\n  Frame:         "
+        + str(reference["frame"])
+        + ""
+    )
 
     ### CREATE XML files and processing folders
 
@@ -132,18 +339,18 @@ def init(file1, file2):
 
     print("\n - Generating folder structure...")
 
-    #make sure ref_dir exists and is empty
+    # make sure ref_dir exists and is empty
     if os.path.exists("./reference") == False:
         os.mkdir("reference")
-    else: 
+    else:
         files = glob.glob("./reference/*")
         for f in files:
             os.remove(f)
 
-    #make sure sec_dir exists and is empty
+    # make sure sec_dir exists and is empty
     if os.path.exists("./secondary") == False:
         os.mkdir("secondary")
-    else: 
+    else:
         files = glob.glob("./secondary/*")
         for f in files:
             os.remove(f)
@@ -164,17 +371,15 @@ def init(file1, file2):
 
     print("\n - Generating XML-files...")
 
-
-    #reference
-    if reference['sensor'] == 'ERS 1':
+    # reference
+    if reference["sensor"] == "ERS 1":
         reference_orbitloc = "/home/data/orbits/ODR/ERS1"
-    elif reference["sensor"] == 'ERS 2':
+    elif reference["sensor"] == "ERS 2":
         reference_orbitloc = "/home/data/orbits/ODR/ERS2"
 
     print("\nreference.xml:")
 
-
-    reference_xml = f'''
+    reference_xml = f"""
     <component name="Reference">
         <property name="IMAGEFILE">
             ./reference/DAT_01.001
@@ -189,7 +394,7 @@ def init(file1, file2):
         <property name="ORBIT_DIRECTORY">
             <value>{reference_orbitloc}</value>
         </property>
-    </component>'''
+    </component>"""
 
     print(reference_xml)
 
@@ -197,15 +402,15 @@ def init(file1, file2):
     f.write(reference_xml)
     f.close()
 
-    #secondary
-    if secondary['sensor'] == 'ERS 1':
+    # secondary
+    if secondary["sensor"] == "ERS 1":
         secondary_orbitloc = "/home/data/orbits/ODR/ERS1"
-    elif secondary["sensor"] == 'ERS 2':
+    elif secondary["sensor"] == "ERS 2":
         secondary_orbitloc = "/home/data/orbits/ODR/ERS2"
 
     print("\nsecondary.xml:")
 
-    secondary_xml = f'''
+    secondary_xml = f"""
     <component name="Secondary">
         <property name="IMAGEFILE">
             ./secondary/DAT_01.001
@@ -220,7 +425,7 @@ def init(file1, file2):
         <property name="ORBIT_DIRECTORY">
             <value>{secondary_orbitloc}</value>
         </property>
-    </component>'''
+    </component>"""
 
     print(secondary_xml)
 
@@ -228,15 +433,12 @@ def init(file1, file2):
     f.write(secondary_xml)
     f.close()
 
-
-
-    #stripmapApp.xml
+    # stripmapApp.xml
     print("\nstripmapApp.xml:")
 
     DEM_loc = "/home/data/DEM/ArcticDEM/v2.0/Iceland_r.dem"
 
-
-    stripmapApp_xml = f'''
+    stripmapApp_xml = f"""
     <stripmapApp>
         <component name="insar">
             <property  name="Sensor name">ERS</property>
@@ -249,7 +451,7 @@ def init(file1, file2):
             <!-- <property name="demFilename">{DEM_loc}</property> -->
             <property name="do denseoffsets">True</property>
         </component>
-    </stripmapApp>'''
+    </stripmapApp>"""
 
     print(stripmapApp_xml)
 
@@ -260,38 +462,71 @@ def init(file1, file2):
     print("\n - Initalisation complete")
 
 
+### Main loop
+
+
 def main():
-    '''
+    """
     Main driver.
-    '''
+    """
 
     from datetime import datetime
     import os
 
     print("\n*** ESR 1&2 - Pixel Tracking Pipeline ***\n")
 
-    program_start = datetime.now()
-
-    print(program_start, "\n")
-
     ### COMMAND LINE ARGUMENTS
 
     inps = argparse()
 
-    ### INITIALISATION STEP
+    # mark starttime
+
+    program_start = datetime.now()
+
+    print(program_start, "\n")
+
+    ### INITIALISATION
 
     if inps.init == True:
         init(inps.file1, inps.file2)
     else:
         print("\n\tInitalisation skipped...\n")
-    
-    
-    ### START ISCE
+
+    ### ISCE
 
     if inps.isce == True:
-        os.system("stripmapApp.py stripmapApp.xml --start=startup --end=topo")
+        os.system(
+            "stripmapApp.py stripmapApp.xml --start=startup --end=refined_resample"
+        )
     else:
         print("\n\tISCE skipped...\n")
+
+    ### DENSEOFFSETS
+
+    if inps.denseOffsets == True:
+        print("\n - Starting denseOffsets\n")
+
+        os.system(
+            "stripmapApp.py stripmapApp.xml --start=dense_offsets --end=dense_offsets"
+        )
+
+    ### GENERATE GEOTIFFS
+
+    if inps.geotiff == True:
+        print("\n - Starting generating GeoTIFFs\n")
+
+        generateGeoTIFF()
+    else:
+        print("\n\tGeoTIFF generation skipped...\n")
+
+    ### GENERATE GEOTIFFS
+
+    if inps.geogrid == True:
+        print("\n - Starting Geogrid\n")
+
+        os.system(
+            "testGeogridOptical.py -m reference_geotiff/reference_warp.tif -s secondary_geotiff/secondary_warp.tif -d demLat_N63_N65_Lon_W022_W018.dem"
+        )
 
     ### FINISH
 
@@ -300,19 +535,6 @@ def main():
     print(f"\nProcessing finished at {program_end}")
     print(f"Completed in {program_end - program_start}")
 
-    
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
