@@ -231,7 +231,7 @@ def runAutoRIFT():
     import os
 
     os.system(
-        "testautoRIFT.py -m reference_slc/reference.slc -s coregisteredSlc/refined_coreg.slc"
+        "scripts/testautoRIFT.py -m reference_slc/reference.slc -s coregisteredSlc/refined_coreg.slc"
     )
 
 def runGeogridCompat(referenceFile, demFile):
