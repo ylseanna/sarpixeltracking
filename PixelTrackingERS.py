@@ -80,19 +80,27 @@ def argparse():
     )
     parser.add_argument(
         "--geoTIFF",
-        default=True,
+        default=False,
         action=argparse.BooleanOptionalAction,
         dest="geotiff",
         required=False,
-        help="Determines whether to convert the coregistered .slc files to geoTIFF format in preperation for Geogrid and autoRIFT.",
+        help="Determines whether to convert the coregistered .slc files to geoTIFF",
     )
     parser.add_argument(
         "--Geogrid",
-        default=True,
+        default=False,
         action=argparse.BooleanOptionalAction,
         dest="geogrid",
         required=False,
-        help="Determines whether to run Geogrid.",
+        help="Determines whether to run Geogrid step (currently not working).",
+    )
+    parser.add_argument(
+        "--autoRIFT",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="autoRIFT",
+        required=False,
+        help="Determines whether to run autoRIFT step.",
     )
     return parser.parse_args()
 
@@ -169,7 +177,7 @@ def generateGeoTIFF():
     os.system(command)
 
     os.system(
-        "gdalwarp -r bilinear -t_srs EPSG:4659 -et 0 reference_geotiff/reference_projec.tif reference_geotiff/reference_warp.tif"
+        "gdalwarp -r bilinear -t_srs EPSG:32627 -et 0 -dstnodata -32767 reference_geotiff/reference_projec.tif reference_geotiff/reference_warp.tif"
     )
 
     ### map project secondary slc
@@ -214,9 +222,140 @@ def generateGeoTIFF():
     os.system(command)
 
     os.system(
-        "gdalwarp -r bilinear -t_srs EPSG:4659 -et 0 secondary_geotiff/secondary_projec.tif secondary_geotiff/secondary_warp.tif"
+        "gdalwarp -r bilinear -t_srs EPSG:32627 -et 0 -dstnodata -32767 secondary_geotiff/secondary_projec.tif secondary_geotiff/secondary_warp.tif"
     )
 
+    # ISN93 EPSG:3057
+
+def runAutoRIFT():
+    import os
+
+    os.system(
+        "testautoRIFT.py -m reference_slc/reference.slc -s coregisteredSlc/refined_coreg.slc"
+    )
+
+def runGeogridCompat(referenceFile, demFile):
+    '''
+    Wire and run geogrid, taken from testGeogridOptical.py, but made to be compatible for the general translation step
+    '''
+
+    from osgeo import gdal
+    dem_info        = gdal.Info(demFile, format='json')
+    reference_info  = gdal.Info(referenceFile, format='json')
+
+    from geogrid import GeogridOptical
+    obj = GeogridOptical()
+
+
+
+    obj.startingX = reference_info['geoTransform'][0]
+    obj.startingY = reference_info['geoTransform'][3]
+    obj.XSize = reference_info['geoTransform'][1]
+    obj.YSize = reference_info['geoTransform'][5]
+
+
+    import xml.etree.ElementTree as ET
+    from datetime import datetime
+
+    time1 = ET.parse('reference_slc.xml').find('component[@name="instance"]/component[@name="orbit"]/property[@name="min_time"]/value').text
+    time2 = ET.parse('secondary_slc.xml').find('component[@name="instance"]/component[@name="orbit"]/property[@name="min_time"]/value').text
+
+    t1 = datetime.strptime(time1, "%Y-%m-%d %H:%M:%S.%f")
+    t2 = datetime.strptime(time2, "%Y-%m-%d %H:%M:%S.%f")
+    deltat = t2 - t1 
+    obj.repeatTime = deltat.total_seconds()
+
+
+    obj.numberOfLines = reference_info['size'][1]
+    obj.numberOfSamples = reference_info['size'][0]
+
+
+    obj.nodata_out = -32767
+    obj.chipSizeX0 = 240
+
+    
+    obj.gridSpacingX = dem_info['geoTransform'][1]
+
+    obj.dat1name = referenceFile
+    obj.demname = demFile
+#     obj.dhdxname = dhdx
+#     obj.dhdyname = dhdy
+#     obj.vxname = vx
+#     obj.vyname = vy
+#     obj.srxname = srx
+#     obj.sryname = sry
+#     obj.csminxname = csminx
+#     obj.csminyname = csminy
+#     obj.csmaxxname = csmaxx
+#     obj.csmaxyname = csmaxy
+    # obj.ssmname = ssm
+    obj.winlocname = "window_location.tif"
+    obj.winoffname = "window_offset.tif"
+    obj.winsrname = "window_search_range.tif"
+    obj.wincsminname = "window_chip_size_min.tif"
+    obj.wincsmaxname = "window_chip_size_max.tif"
+    obj.winssmname = "window_stable_surface_mask.tif"
+    obj.winro2vxname = "window_rdr_off2vel_x_vec.tif"
+    obj.winro2vyname = "window_rdr_off2vel_y_vec.tif"
+    obj.winsfname = "window_scale_factor.tif"
+    ##dt-varying search range scale (srs) rountine parameters
+    obj.srs_dt_unity = 32
+    obj.srs_max_scale = 10
+    obj.srs_max_search = 20000
+    obj.srs_min_search = 0
+
+    obj.runGeogrid()
+
+    # run_info = {
+    #     'chipsizex0': obj.chipSizeX0,
+    #     'gridspacingx': obj.gridSpacingX,
+    #     'vxname': vx,
+    #     'vyname': vy,
+    #     'sxname': kwargs.get('dhdxs'),
+    #     'syname': kwargs.get('dhdys'),
+    #     'maskname': kwargs.get('sp'),
+    #     'xoff': obj.pOff,
+    #     'yoff': obj.lOff,
+    #     'xcount': obj.pCount,
+    #     'ycount': obj.lCount,
+    #     'dt': obj.repeatTime,
+    #     'epsg': kwargs.get('epsg'),
+    #     'XPixelSize': obj.X_res,
+    #     'YPixelSize': obj.Y_res,
+    #     'cen_lat': obj.cen_lat,
+    #     'cen_lon': obj.cen_lon,
+    # }
+
+    # return run_info
+
+def runISCE():
+    import os 
+    from os import path
+
+    # cleanup
+
+    folders = ["PICKLE", "misreg", "geometry", "coregisteredSlc", "offsets", "denseOffsets", "interferogram"]
+
+    for folder in folders:
+        if path.isdir(folder):
+            os.system(f"rm -r {folder}")
+
+    if path.exists("demLat*"):
+        os.system("rm demLat*")
+
+    os.system(
+            "stripmapApp.py stripmapApp.xml --start=startup --end=refined_resample" 
+    )
+
+
+    # os.system(
+    #         "stripmapApp.py stripmapApp.xml --start=startup --end=formslc" 
+    # )
+
+
+    # os.system(
+    #         "stripmapApp.py stripmapApp.xml --start=verifyDEM --end=refined_resample"
+    # )
 
 def init(file1, file2):
     """function that prepares the pipeline"""
@@ -236,15 +375,7 @@ def init(file1, file2):
     os.system("rm -r reference*")
     os.system("rm -r secondary*")
     os.system("rm *.xml")
-    os.system("rm -r PICKLE")
-    os.system("rm -r offsets")
-    os.system("rm -r misreg")
-    os.system("rm -r interferogram")
-    os.system("rm -r geometry")
-    os.system("rm -r coregisteredSlc")
-    os.system("rm -r denseOffsets")
-    os.system("rm demLat*")
-
+    
     # retrieve arguments
 
     """ eventually change to input """
@@ -436,7 +567,7 @@ def init(file1, file2):
     # stripmapApp.xml
     print("\nstripmapApp.xml:")
 
-    DEM_loc = "/home/data/DEM/ArcticDEM/v2.0/Iceland_r.dem"
+    DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem" #"/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
 
     stripmapApp_xml = f"""
     <stripmapApp>
@@ -448,7 +579,7 @@ def init(file1, file2):
             <component name="secondary">
                 <catalog>secondary.xml</catalog>
             </component>
-            <!-- <property name="demFilename">{DEM_loc}</property> -->
+            <property name="demFilename">{DEM_loc}</property>
             <property name="do denseoffsets">True</property>
         </component>
     </stripmapApp>"""
@@ -495,9 +626,7 @@ def main():
     ### ISCE
 
     if inps.isce == True:
-        os.system(
-            "stripmapApp.py stripmapApp.xml --start=startup --end=refined_resample"
-        )
+        runISCE()
     else:
         print("\n\tISCE skipped...\n")
 
@@ -519,14 +648,33 @@ def main():
     else:
         print("\n\tGeoTIFF generation skipped...\n")
 
-    ### GENERATE GEOTIFFS
+    ### Start Geogrid
 
     if inps.geogrid == True:
         print("\n - Starting Geogrid\n")
 
-        os.system(
-            "testGeogridOptical.py -m reference_geotiff/reference_warp.tif -s secondary_geotiff/secondary_warp.tif -d demLat_N63_N65_Lon_W022_W018.dem"
-        )
+        ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93  
+        ## EPSG:32627
+
+        runGeogridCompat("reference_geotiff/reference_warp.tif", "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif")
+
+        # os.system(
+        #     "testGeogridOptical.py -m reference_geotiff/reference_warp.tif -s secondary_geotiff/secondary_warp.tif -d demLat_N63_N65_Lon_W022_W018.dem.ISN93"
+        # )
+
+    ### Start autoRIFT
+
+    if inps.autoRIFT == True:
+        print("\n - Starting AutoRIFT\n")
+
+        ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93  
+        ## EPSG:32627
+
+        runAutoRIFT()
+
+        # os.system(
+        #     "testGeogridOptical.py -m reference_geotiff/reference_warp.tif -s secondary_geotiff/secondary_warp.tif -d demLat_N63_N65_Lon_W022_W018.dem.ISN93"
+        # )
 
     ### FINISH
 
