@@ -3,7 +3,7 @@
 """
 Base function for pixel tracking for this project
 
-Requires a file called MetaData.db containting the file locations of all files used in this project
+Requires a file called MetaData.db containing the file locations of all files used in this project
 
 requires: gdal, geographiclib
 """
@@ -15,6 +15,116 @@ def timestamp(string):
     from datetime import datetime
 
     return datetime.strptime(string, "%Y-%m-%dT%H:%M:%S")
+
+
+class Logger:
+    def __init__(self, inps):
+        import json
+        from datetime import datetime
+
+        t = datetime.now()
+
+        self.starttime = t
+
+        args = {}
+
+        for key, value in vars(inps).items():
+            args[key] = value
+
+        jsondata = {
+            "metadata": {
+                "program": "Pixel Tracking Pipeline",
+                "program_desc": "Generates pixel tracking offset in SAR data for various platforms",
+                "log_timestamp": t.timestamp(),
+                "log_isotime": t.isoformat(),
+            },
+            "args": args,
+            "logs": [],
+            "errors": [],
+        }
+
+        json_object = json.dumps(jsondata, indent=4)
+
+        with open("log.json", "w") as outfile:
+            outfile.write(json_object)
+
+    def log(self, id, description):
+        import json
+        from datetime import datetime
+
+        t = datetime.now()
+
+        logdata = {
+            "id": id,
+            "level": "log",
+            "timestamp": t.timestamp(),
+            "isotime": t.isoformat(),
+            "descr": description,
+        }
+
+        with open("log.json", "r+") as file:
+            json_object = json.load(file)
+
+            json_object["logs"].append(logdata)
+            # Sets file's current position at offset.
+            file.seek(0)
+            # convert back to json.
+            json.dump(json_object, file, indent=4)
+
+        print(f"\n{t} - {description}\n")
+
+    def error(self, exctype, value, traceback):
+        import json
+        from datetime import datetime
+
+        t = datetime.now()
+
+        errordata = {
+            "exctype": exctype,
+            "value": value,
+            "traceback": traceback,
+            "timestamp": t.timestamp(),
+            "isotime": t.isoformat(),
+        }
+
+        with open("log.json", "r+") as file:
+            json_object = json.load(file)
+
+            json_object["errors"].append(errordata)
+            # Sets file's current position at offset.
+            file.seek(0)
+            # convert back to json.
+            json.dump(json_object, file, indent=4)
+
+    def end(self):
+        from datetime import datetime
+
+        program_end = datetime.now()
+
+        print(f"Completed in {program_end - self.starttime}")
+
+
+def ErrorHandling(logger):
+    def log_exception(exctype, value, traceback):
+        logger.error(str(exctype), str(value), str(traceback))
+
+    def attach_hook(hook_func, run_func):
+        def inner(*args, **kwargs):
+            if not (args or kwargs):
+                # This condition is for sys.exc_info
+                local_args = run_func()
+                hook_func(*local_args)
+            else:
+                # This condition is for sys.excepthook
+                hook_func(*args, **kwargs)
+            return run_func(*args, **kwargs)
+
+        return inner
+
+    import sys
+
+    sys.exc_info = attach_hook(log_exception, sys.exc_info)
+    sys.excepthook = attach_hook(log_exception, sys.excepthook)
 
 
 ### Main functions
@@ -35,15 +145,15 @@ def argparse():
         "--file1",
         dest="file1",
         type=str,
-        required=False,
-        help="Input filename 1 as found in the metadata database, typically reference.",
+        required=False,  # Set to true eventually
+        help="Input filename 1 as found in the metadata database, typically reference. The program will automatically assign the earlier images as reference.",
     )
     parser.add_argument(
         "-f2",
         "--file2",
         dest="file2",
         type=str,
-        required=False,
+        required=False,  # Set to true eventually
         help="Input filename 2 as found in the metadata database, typically secondary.",
     )
     parser.add_argument(
@@ -51,8 +161,8 @@ def argparse():
         "--dem",
         dest="DEM_file",
         type=str,
-        required=False,
-        help="Input dem file as found in the metadata database, if not provided will default to SRTM file.",
+        required=False,  # True
+        help="Input dem file as found in the metadata database.",
     )
     parser.add_argument(
         "--init",
@@ -79,14 +189,6 @@ def argparse():
         help="Determines whether to do dense Ampcor dense offsets as provided in the ISCE program.",
     )
     parser.add_argument(
-        "--geoTIFF",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        dest="geotiff",
-        required=False,
-        help="Determines whether to convert the coregistered .slc files to geoTIFF",
-    )
-    parser.add_argument(
         "--Geogrid",
         default=False,
         action=argparse.BooleanOptionalAction,
@@ -102,11 +204,19 @@ def argparse():
         required=False,
         help="Determines whether to run autoRIFT step.",
     )
+    parser.add_argument(
+        "--geocode",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="geocode",
+        required=False,
+        help="Determines whether to geocode the produced offset from each generator (ampcor, denseAmpcor, autoRIFT).",
+    )
     return parser.parse_args()
 
 
-def generateGeoTIFF():
-    print(" - Generating GeoTIFF\n")
+def generatePreviews():
+    print(" - Geocoding offsets\n")
     from osgeo import gdal
     import numpy as np
 
@@ -227,6 +337,130 @@ def generateGeoTIFF():
 
     # ISN93 EPSG:3057
 
+
+def geocodeOffsets():
+    print(" - Geocoding offsets\n")
+    from osgeo import gdal
+    import numpy as np
+
+    print("Getting geometry bounds:")
+
+    lats = gdal.Open("geometry/lat.rdr.full")
+    lons = gdal.Open("geometry/lon.rdr.full")
+
+    lat = np.array(lats.GetRasterBand(1).ReadAsArray())
+    lon = np.array(lons.GetRasterBand(1).ReadAsArray())
+
+    lats = None
+    lons = None
+
+    height, width = np.shape(lat)
+
+    UpperLeft = (lat[0, -1], lon[0, -1])
+    UpperRight = (lat[0, 0], lon[0, 0])
+    LowerLeft = (lat[-1, -1], lon[-1, -1])
+    LowerRight = (lat[-1, 0], lon[-1, 0])
+
+    print("Upper left corner:", UpperLeft)
+    print("Upper right corner:", UpperRight)
+    print("Lower right corner", LowerRight)
+    print("Lower left corner", LowerLeft)
+
+    import os
+
+    ### map project reference slc
+
+    print("\nMap projecting the reference .slc image using GDAL\n")
+
+    # cleanup
+
+    os.system("rm -r reference_geotiff")
+
+    os.mkdir("reference_geotiff")
+
+    out_filename = "reference_geotiff/reference.tif"
+
+    in_filename = "reference_slc/reference.slc"
+
+    driver = gdal.GetDriverByName("GTiff")
+
+    in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
+    arr = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
+
+    out_ds = driver.Create(
+        out_filename, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32
+    )
+    out_ds.SetProjection(in_ds.GetProjection())
+
+    band = out_ds.GetRasterBand(1)
+    band.WriteArray(arr)
+    band.FlushCache()
+    band.ComputeStatistics(False)
+
+    in_ds = None
+    out_ds = None
+
+    command = f"gdal_translate \
+                    -gcp 0 0 {UpperLeft[1]} {UpperLeft[0]} \
+                    -gcp {width} 0 {UpperRight[1]} {UpperRight[0]} \
+                    -gcp {width} {height} {LowerRight[1]} {LowerRight[0]} \
+                    -gcp 0 {height} {LowerLeft[1]} {LowerLeft[0]} \
+                    reference_geotiff/reference.tif reference_geotiff/reference_projec.tif"
+
+    os.system(command)
+
+    os.system(
+        "gdalwarp -r bilinear -t_srs EPSG:32627 -et 0 -dstnodata -32767 reference_geotiff/reference_projec.tif reference_geotiff/reference_warp.tif"
+    )
+
+    ### map project secondary slc
+
+    print("\nMap projecting the coregistered secondary .slc image using GDAL\n")
+
+    # cleanup
+
+    os.system("rm -r secondary_geotiff")
+
+    os.mkdir("secondary_geotiff")
+
+    out_filename = "secondary_geotiff/secondary.tif"
+
+    in_filename = "coregisteredSlc/refined_coreg.slc"
+
+    driver = gdal.GetDriverByName("GTiff")
+
+    in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
+    arr = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
+
+    out_ds = driver.Create(
+        out_filename, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32
+    )
+    out_ds.SetProjection(in_ds.GetProjection())
+
+    band = out_ds.GetRasterBand(1)
+    band.WriteArray(arr)
+    band.FlushCache()
+    band.ComputeStatistics(False)
+
+    in_ds = None
+    out_ds = None
+
+    command = f"gdal_translate \
+                    -gcp 0 0 {UpperLeft[1]} {UpperLeft[0]} \
+                    -gcp {width} 0 {UpperRight[1]} {UpperRight[0]} \
+                    -gcp {width} {height} {LowerRight[1]} {LowerRight[0]} \
+                    -gcp 0 {height} {LowerLeft[1]} {LowerLeft[0]} \
+                    secondary_geotiff/secondary.tif secondary_geotiff/secondary_projec.tif"
+
+    os.system(command)
+
+    os.system(
+        "gdalwarp -r bilinear -t_srs EPSG:32627 -et 0 -dstnodata -32767 secondary_geotiff/secondary_projec.tif secondary_geotiff/secondary_warp.tif"
+    )
+
+    # ISN93 EPSG:3057
+
+
 def runAutoRIFT():
     import os
 
@@ -234,60 +468,69 @@ def runAutoRIFT():
         "scripts/testautoRIFT.py -m reference_slc/reference.slc -s coregisteredSlc/refined_coreg.slc"
     )
 
+
 def runGeogridCompat(referenceFile, demFile):
-    '''
+    """
     Wire and run geogrid, taken from testGeogridOptical.py, but made to be compatible for the general translation step
-    '''
+    """
 
     from osgeo import gdal
-    dem_info        = gdal.Info(demFile, format='json')
-    reference_info  = gdal.Info(referenceFile, format='json')
+
+    dem_info = gdal.Info(demFile, format="json")
+    reference_info = gdal.Info(referenceFile, format="json")
 
     from geogrid import GeogridOptical
+
     obj = GeogridOptical()
 
-
-
-    obj.startingX = reference_info['geoTransform'][0]
-    obj.startingY = reference_info['geoTransform'][3]
-    obj.XSize = reference_info['geoTransform'][1]
-    obj.YSize = reference_info['geoTransform'][5]
-
+    obj.startingX = reference_info["geoTransform"][0]
+    obj.startingY = reference_info["geoTransform"][3]
+    obj.XSize = reference_info["geoTransform"][1]
+    obj.YSize = reference_info["geoTransform"][5]
 
     import xml.etree.ElementTree as ET
     from datetime import datetime
 
-    time1 = ET.parse('reference_slc.xml').find('component[@name="instance"]/component[@name="orbit"]/property[@name="min_time"]/value').text
-    time2 = ET.parse('secondary_slc.xml').find('component[@name="instance"]/component[@name="orbit"]/property[@name="min_time"]/value').text
+    time1 = (
+        ET.parse("reference_slc.xml")
+        .find(
+            'component[@name="instance"]/component[@name="orbit"]/property[@name="min_time"]/value'
+        )
+        .text
+    )
+    time2 = (
+        ET.parse("secondary_slc.xml")
+        .find(
+            'component[@name="instance"]/component[@name="orbit"]/property[@name="min_time"]/value'
+        )
+        .text
+    )
 
     t1 = datetime.strptime(time1, "%Y-%m-%d %H:%M:%S.%f")
     t2 = datetime.strptime(time2, "%Y-%m-%d %H:%M:%S.%f")
-    deltat = t2 - t1 
+    deltat = t2 - t1
     obj.repeatTime = deltat.total_seconds()
 
-
-    obj.numberOfLines = reference_info['size'][1]
-    obj.numberOfSamples = reference_info['size'][0]
-
+    obj.numberOfLines = reference_info["size"][1]
+    obj.numberOfSamples = reference_info["size"][0]
 
     obj.nodata_out = -32767
     obj.chipSizeX0 = 240
 
-    
-    obj.gridSpacingX = dem_info['geoTransform'][1]
+    obj.gridSpacingX = dem_info["geoTransform"][1]
 
     obj.dat1name = referenceFile
     obj.demname = demFile
-#     obj.dhdxname = dhdx
-#     obj.dhdyname = dhdy
-#     obj.vxname = vx
-#     obj.vyname = vy
-#     obj.srxname = srx
-#     obj.sryname = sry
-#     obj.csminxname = csminx
-#     obj.csminyname = csminy
-#     obj.csmaxxname = csmaxx
-#     obj.csmaxyname = csmaxy
+    #     obj.dhdxname = dhdx
+    #     obj.dhdyname = dhdy
+    #     obj.vxname = vx
+    #     obj.vyname = vy
+    #     obj.srxname = srx
+    #     obj.sryname = sry
+    #     obj.csminxname = csminx
+    #     obj.csminyname = csminy
+    #     obj.csmaxxname = csmaxx
+    #     obj.csmaxyname = csmaxy
     # obj.ssmname = ssm
     obj.winlocname = "window_location.tif"
     obj.winoffname = "window_offset.tif"
@@ -328,13 +571,22 @@ def runGeogridCompat(referenceFile, demFile):
 
     # return run_info
 
+
 def runISCE():
-    import os 
+    import os
     from os import path
 
     # cleanup
 
-    folders = ["PICKLE", "misreg", "geometry", "coregisteredSlc", "offsets", "denseOffsets", "interferogram"]
+    folders = [
+        "PICKLE",
+        "misreg",
+        "geometry",
+        "coregisteredSlc",
+        "offsets",
+        "denseOffsets",
+        "interferogram",
+    ]
 
     for folder in folders:
         if path.isdir(folder):
@@ -343,19 +595,16 @@ def runISCE():
     if path.exists("demLat*"):
         os.system("rm demLat*")
 
-    os.system(
-            "stripmapApp.py stripmapApp.xml --start=startup --end=refined_resample" 
-    )
-
+    os.system("stripmapApp.py stripmapApp.xml --start=startup --end=refined_resample")
 
     # os.system(
-    #         "stripmapApp.py stripmapApp.xml --start=startup --end=formslc" 
+    #         "stripmapApp.py stripmapApp.xml --start=startup --end=formslc"
     # )
-
 
     # os.system(
     #         "stripmapApp.py stripmapApp.xml --start=verifyDEM --end=refined_resample"
     # )
+
 
 def init(file1, file2):
     """function that prepares the pipeline"""
@@ -368,14 +617,12 @@ def init(file1, file2):
 
     ### INPUT
 
-    print("\n - Initialising...\n")
-
     # cleanup
 
     os.system("rm -r reference*")
     os.system("rm -r secondary*")
     os.system("rm *.xml")
-    
+
     # retrieve arguments
 
     """ eventually change to input """
@@ -567,7 +814,7 @@ def init(file1, file2):
     # stripmapApp.xml
     print("\nstripmapApp.xml:")
 
-    DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem" #"/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
+    DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem"  # "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
 
     stripmapApp_xml = f"""
     <stripmapApp>
@@ -590,8 +837,6 @@ def init(file1, file2):
     f.write(stripmapApp_xml)
     f.close()
 
-    print("\n - Initalisation complete")
-
 
 ### Main loop
 
@@ -610,53 +855,59 @@ def main():
 
     inps = argparse()
 
+    logger = Logger(inps)
+
+    ErrorHandling(logger)
+
     # mark starttime
 
-    program_start = datetime.now()
-
-    print(program_start, "\n")
+    logger.log("start", "Starting program")
 
     ### INITIALISATION
 
     if inps.init == True:
+        logger.log("init_start", "Starting initialisation")
+
         init(inps.file1, inps.file2)
+
+        logger.log("init_end", "Initialisation finished")
     else:
-        print("\n\tInitalisation skipped...\n")
+        logger.log("init_skip", "Initalisation skipped...")
 
     ### ISCE
 
     if inps.isce == True:
+        logger.log("isce_start", "Starting ISCE")
+
         runISCE()
+
+        logger.log("isce_end", "ISCE finished")
     else:
-        print("\n\tISCE skipped...\n")
+        logger.log("ISCE_skip", "ISCE skipped...")
 
     ### DENSEOFFSETS
 
     if inps.denseOffsets == True:
-        print("\n - Starting denseOffsets\n")
+        logger.log("denseOffsets_start", "Starting dense offsets")
 
         os.system(
             "stripmapApp.py stripmapApp.xml --start=dense_offsets --end=dense_offsets"
         )
 
-    ### GENERATE GEOTIFFS
-
-    if inps.geotiff == True:
-        print("\n - Starting generating GeoTIFFs\n")
-
-        generateGeoTIFF()
-    else:
-        print("\n\tGeoTIFF generation skipped...\n")
+        logger.log("isce_end", "Dense offsets finished")
 
     ### Start Geogrid
 
     if inps.geogrid == True:
-        print("\n - Starting Geogrid\n")
+        logger.log("Geogrid_start", "Starting Geogrid")
 
-        ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93  
+        ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93
         ## EPSG:32627
 
-        runGeogridCompat("reference_geotiff/reference_warp.tif", "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif")
+        runGeogridCompat(
+            "reference_geotiff/reference_warp.tif",
+            "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif",
+        )
 
         # os.system(
         #     "testGeogridOptical.py -m reference_geotiff/reference_warp.tif -s secondary_geotiff/secondary_warp.tif -d demLat_N63_N65_Lon_W022_W018.dem.ISN93"
@@ -665,9 +916,9 @@ def main():
     ### Start autoRIFT
 
     if inps.autoRIFT == True:
-        print("\n - Starting AutoRIFT\n")
+        logger.log("autoRIFT_start", "Starting AutoRIFT")
 
-        ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93  
+        ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93
         ## EPSG:32627
 
         runAutoRIFT()
@@ -676,12 +927,25 @@ def main():
         #     "testGeogridOptical.py -m reference_geotiff/reference_warp.tif -s secondary_geotiff/secondary_warp.tif -d demLat_N63_N65_Lon_W022_W018.dem.ISN93"
         # )
 
+        logger.log("autoRIFT_end", "AutoRIFT finished")
+    else:
+        logger.log("autoRIFT_skip", "AutoRIFT skipped...")
+
+    ### Geocode offsets
+
+    if inps.geocode == True:
+        logger.log("geocode_start", "Starting geocoding offsets")
+
+        geocodeOffsets()
+
+        logger.log("geocode_end", "Geocoding offsets finished")
+    else:
+        logger.log("geocode_skip", "Geocoding offsets skipped...")
+
     ### FINISH
 
-    program_end = datetime.now()
-
-    print(f"\nProcessing finished at {program_end}")
-    print(f"Completed in {program_end - program_start}")
+    logger.log("program_end", "Processing finished")
+    logger.end()
 
 
 if __name__ == "__main__":
