@@ -251,7 +251,7 @@ def generatePreviews():
 
     # cleanup
 
-    os.system("rm -r reference_geotiff")
+    os.system("rm -rf reference_geotiff")
 
     os.mkdir("reference_geotiff")
 
@@ -296,7 +296,7 @@ def generatePreviews():
 
     # cleanup
 
-    os.system("rm -r secondary_geotiff")
+    os.system("rm -rf secondary_geotiff")
 
     os.mkdir("secondary_geotiff")
 
@@ -339,11 +339,69 @@ def generatePreviews():
 
 
 def geocodeOffsets():
-    print(" - Geocoding offsets\n")
-    from osgeo import gdal
+    import os
+    import os.path
+    from osgeo import gdal, osr
     import numpy as np
 
-    print("Getting geometry bounds:")
+    ### Function for generating geotiffs based on geometry and array provided
+
+    def generateGeotiff(array, out_filename, folder, geometry):  # no extension on filename
+        driver = gdal.GetDriverByName("GTiff")
+
+        out_ds = driver.Create(
+            os.path.join("geocoded_offsets", folder, out_filename+"_untranslated.tif"),
+            array.shape[1],
+            array.shape[0],
+            1,
+            gdal.GDT_Float32,
+        )
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+
+        out_ds.SetProjection(srs.ExportToWkt())
+
+        band = out_ds.GetRasterBand(1)
+        band.WriteArray(array)
+        band.FlushCache()
+        band.ComputeStatistics(False)
+
+        out_ds = None
+
+        os.system(f"gdal_translate \
+                        -gcp 0 0 {geometry['UpperLeft'][1]} {geometry['UpperLeft'][0]} \
+                        -gcp {width} 0 {geometry['UpperRight'][1]} {geometry['UpperRight'][0]} \
+                        -gcp {width} {height} {geometry['LowerRight'][1]} {geometry['LowerRight'][0]} \
+                        -gcp 0 {height} {geometry['LowerLeft'][1]} {geometry['LowerLeft'][0]} \
+                        {os.path.join('geocoded_offsets', folder, out_filename+'_untranslated.tif')} \
+                        {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')}")
+
+        os.system(f"gdalwarp \
+                   -r bilinear -t_srs EPSG:3057 -et 0 \
+                  {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')} \
+                  {os.path.join('geocoded_offsets', folder, out_filename+'.tif')}")
+
+    ### setting up loop
+
+    print(" - Detecting offsets to geocode\n")
+
+    programs = [
+        {"filepath": "offsets", "pathtype": "folder", "program": "Ampcor"},
+        {"filepath": "denseOffsets", "pathtype": "folder", "program": "DenseAmpcor"},
+        {"filepath": "offset.mat", "pathtype": ".mat file", "program": "autoRIFT"},
+    ]
+
+    to_geocode = []
+
+    for program in programs:
+        if os.path.exists(program["filepath"]):
+            to_geocode.append(program)
+
+            print(f"A {program['pathtype']} detected for {program['program']}.")
+
+    ### finding geometry
+
+    print("\n - Getting geometric bounds:\n")
 
     lats = gdal.Open("geometry/lat.rdr.full")
     lons = gdal.Open("geometry/lon.rdr.full")
@@ -366,99 +424,39 @@ def geocodeOffsets():
     print("Lower right corner", LowerRight)
     print("Lower left corner", LowerLeft)
 
-    import os
+    Geometry = {
+        "UpperLeft": UpperLeft,
+        "UpperRight": UpperRight,
+        "LowerRight": LowerRight,
+        "LowerLeft": LowerLeft,
+    }
 
-    ### map project reference slc
+    # cleanup and intialize folder
 
-    print("\nMap projecting the reference .slc image using GDAL\n")
+    os.system("rm -rf geocoded_offsets")
 
-    # cleanup
+    os.mkdir("geocoded_offsets")
 
-    os.system("rm -r reference_geotiff")
+    for geocode in to_geocode:
+        os.system(f"rm -rf {os.path.join('geocoded_offsets', geocode['program'])}")
+        os.mkdir(os.path.join("geocoded_offsets", geocode['program']))
 
-    os.mkdir("reference_geotiff")
+        if geocode['program'] == 'autoRIFT':
+            try:
+                import h5py
+                f = h5py.File('offset.mat','r')
+            except:
+                import scipy.io as sio
+                f = sio.loadmat('offset.mat')
 
-    out_filename = "reference_geotiff/reference.tif"
+            array = np.fliplr(f['Dx'])
 
-    in_filename = "reference_slc/reference.slc"
+            print(array)
 
-    driver = gdal.GetDriverByName("GTiff")
+            generateGeotiff(array, "dx", geocode['program'], Geometry)
 
-    in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
-    arr = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
+ 
 
-    out_ds = driver.Create(
-        out_filename, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32
-    )
-    out_ds.SetProjection(in_ds.GetProjection())
-
-    band = out_ds.GetRasterBand(1)
-    band.WriteArray(arr)
-    band.FlushCache()
-    band.ComputeStatistics(False)
-
-    in_ds = None
-    out_ds = None
-
-    command = f"gdal_translate \
-                    -gcp 0 0 {UpperLeft[1]} {UpperLeft[0]} \
-                    -gcp {width} 0 {UpperRight[1]} {UpperRight[0]} \
-                    -gcp {width} {height} {LowerRight[1]} {LowerRight[0]} \
-                    -gcp 0 {height} {LowerLeft[1]} {LowerLeft[0]} \
-                    reference_geotiff/reference.tif reference_geotiff/reference_projec.tif"
-
-    os.system(command)
-
-    os.system(
-        "gdalwarp -r bilinear -t_srs EPSG:32627 -et 0 -dstnodata -32767 reference_geotiff/reference_projec.tif reference_geotiff/reference_warp.tif"
-    )
-
-    ### map project secondary slc
-
-    print("\nMap projecting the coregistered secondary .slc image using GDAL\n")
-
-    # cleanup
-
-    os.system("rm -r secondary_geotiff")
-
-    os.mkdir("secondary_geotiff")
-
-    out_filename = "secondary_geotiff/secondary.tif"
-
-    in_filename = "coregisteredSlc/refined_coreg.slc"
-
-    driver = gdal.GetDriverByName("GTiff")
-
-    in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
-    arr = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
-
-    out_ds = driver.Create(
-        out_filename, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32
-    )
-    out_ds.SetProjection(in_ds.GetProjection())
-
-    band = out_ds.GetRasterBand(1)
-    band.WriteArray(arr)
-    band.FlushCache()
-    band.ComputeStatistics(False)
-
-    in_ds = None
-    out_ds = None
-
-    command = f"gdal_translate \
-                    -gcp 0 0 {UpperLeft[1]} {UpperLeft[0]} \
-                    -gcp {width} 0 {UpperRight[1]} {UpperRight[0]} \
-                    -gcp {width} {height} {LowerRight[1]} {LowerRight[0]} \
-                    -gcp 0 {height} {LowerLeft[1]} {LowerLeft[0]} \
-                    secondary_geotiff/secondary.tif secondary_geotiff/secondary_projec.tif"
-
-    os.system(command)
-
-    os.system(
-        "gdalwarp -r bilinear -t_srs EPSG:32627 -et 0 -dstnodata -32767 secondary_geotiff/secondary_projec.tif secondary_geotiff/secondary_warp.tif"
-    )
-
-    # ISN93 EPSG:3057
 
 
 def runAutoRIFT():
@@ -590,7 +588,7 @@ def runISCE():
 
     for folder in folders:
         if path.isdir(folder):
-            os.system(f"rm -r {folder}")
+            os.system(f"rm -rf {folder}")
 
     if path.exists("demLat*"):
         os.system("rm demLat*")
@@ -619,8 +617,8 @@ def init(file1, file2):
 
     # cleanup
 
-    os.system("rm -r reference*")
-    os.system("rm -r secondary*")
+    os.system("rm -rf reference*")
+    os.system("rm -rf secondary*")
     os.system("rm *.xml")
 
     # retrieve arguments
