@@ -1,5 +1,4 @@
 *
 !*.py
 !*.md
-!*.ipynb
 !scripts
