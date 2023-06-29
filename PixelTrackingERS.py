@@ -162,7 +162,15 @@ def argparse():
         dest="DEM_file",
         type=str,
         required=False,  # True
-        help="Input dem file as found in the metadata database.",
+        help=".dem file to be used by ISCE",
+    )
+    parser.add_argument(
+        "-dest",
+        "--destination",
+        dest="destination",
+        type=str,
+        required=False,  # True
+        help="Target folder to store pipeline results (logs, previews, geocoded offsets)",
     )
     parser.add_argument(
         "--init",
@@ -179,6 +187,14 @@ def argparse():
         dest="isce",
         required=False,
         help="Determines whether to run ISCE preprocessing step.",
+    )
+    parser.add_argument(
+        "--ignore-ampcor",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        dest="ignore_ampcor",
+        required=False,
+        help="Determines whether to ignore Ampcor standard offsets as generated for the ISCE program in further processing, e.g.: geocoding (NOTE: they will always be generated).",
     )
     parser.add_argument(
         "--denseOffsets",
@@ -211,6 +227,14 @@ def argparse():
         dest="geocode",
         required=False,
         help="Determines whether to geocode the produced offset from each generator (ampcor, denseAmpcor, autoRIFT).",
+    )
+    parser.add_argument(
+        "--previews",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="preview",
+        required=False,
+        help="Determines whether to generate previews of the .slc images for later visualisation (they are significantly downsampled)",
     )
     return parser.parse_args()
 
@@ -338,19 +362,24 @@ def generatePreviews():
     # ISN93 EPSG:3057
 
 
-def geocodeOffsets():
+def geocodeOffsets(inps):
     import os
     import os.path
     from osgeo import gdal, osr
     import numpy as np
+    from geographiclib.geodesic import Geodesic as geodesic
 
     ### Function for generating geotiffs based on geometry and array provided
 
-    def generateGeotiff(array, out_filename, folder, geometry):  # no extension on filename
+    def generateGeotiff(
+        array, out_filename, folder, geometry
+    ):  # no extension on filename
         driver = gdal.GetDriverByName("GTiff")
 
         out_ds = driver.Create(
-            os.path.join("geocoded_offsets", folder, out_filename+"_untranslated.tif"),
+            os.path.join(
+                "geocoded_offsets", folder, out_filename + "_untranslated.tif"
+            ),
             array.shape[1],
             array.shape[0],
             1,
@@ -368,18 +397,88 @@ def geocodeOffsets():
 
         out_ds = None
 
-        os.system(f"gdal_translate \
+        os.system(
+            f"gdal_translate \
                         -gcp 0 0 {geometry['UpperLeft'][1]} {geometry['UpperLeft'][0]} \
-                        -gcp {width} 0 {geometry['UpperRight'][1]} {geometry['UpperRight'][0]} \
-                        -gcp {width} {height} {geometry['LowerRight'][1]} {geometry['LowerRight'][0]} \
-                        -gcp 0 {height} {geometry['LowerLeft'][1]} {geometry['LowerLeft'][0]} \
+                        -gcp {geometry['pixel_width']} 0 {geometry['UpperRight'][1]} {geometry['UpperRight'][0]} \
+                        -gcp {geometry['pixel_width']} {geometry['pixel_height']} {geometry['LowerRight'][1]} {geometry['LowerRight'][0]} \
+                        -gcp 0 {geometry['pixel_height']} {geometry['LowerLeft'][1]} {geometry['LowerLeft'][0]} \
                         {os.path.join('geocoded_offsets', folder, out_filename+'_untranslated.tif')} \
-                        {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')}")
+                        {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')}"
+        )
 
-        os.system(f"gdalwarp \
+        os.system(
+            f"gdalwarp \
                    -r bilinear -t_srs EPSG:3057 -et 0 \
                   {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')} \
-                  {os.path.join('geocoded_offsets', folder, out_filename+'.tif')}")
+                  {os.path.join('geocoded_offsets', folder, out_filename+'.tif')}"
+        )
+
+        os.system(
+            f"rm -rf {os.path.join('geocoded_offsets', folder, out_filename+'_untranslated.tif')}"
+        )
+        os.system(
+            f"rm -rf {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')}"
+        )
+
+    def generateGeometry():
+        print("\n - Getting geometric bounds:\n")
+
+        lats = gdal.Open("geometry/lat.rdr.full")
+        lons = gdal.Open("geometry/lon.rdr.full")
+
+        lat = np.array(lats.GetRasterBand(1).ReadAsArray())
+        lon = np.array(lons.GetRasterBand(1).ReadAsArray())
+
+        lats = None
+        lons = None
+
+        height, width = np.shape(lat)
+
+        UpperLeft = (lat[0, -1], lon[0, -1])
+        UpperRight = (lat[0, 0], lon[0, 0])
+        LowerLeft = (lat[-1, -1], lon[-1, -1])
+        LowerRight = (lat[-1, 0], lon[-1, 0])
+
+        print("Upper left corner: ", UpperLeft)
+        print("Upper right corner:", UpperRight)
+        print("Lower right corner:", LowerRight)
+        print("Lower left corner: ", LowerLeft)
+
+        top_geodesic = geodesic.WGS84.Inverse(
+            UpperLeft[0], UpperLeft[1], UpperRight[0], UpperRight[1]
+        )
+        bottom_geodesic = geodesic.WGS84.Inverse(
+            LowerLeft[0], LowerLeft[1], LowerRight[0], LowerRight[1]
+        )
+
+        left_geodesic = geodesic.WGS84.Inverse(
+            UpperLeft[0], UpperLeft[1], LowerLeft[0], LowerLeft[1]
+        )
+        right_geodesic = geodesic.WGS84.Inverse(
+            UpperRight[0], UpperRight[1], LowerRight[0], LowerRight[1]
+        )
+
+        print("\nTop geodesic distance:   ", top_geodesic["s12"])
+        print("Bottom geodesic distance:", bottom_geodesic["s12"])
+
+        print("Left geodesic distance:  ", left_geodesic["s12"])
+        print("Right geodesic distance: ", right_geodesic["s12"])
+
+        Geometry = {
+            "UpperLeft": UpperLeft,
+            "UpperRight": UpperRight,
+            "LowerRight": LowerRight,
+            "LowerLeft": LowerLeft,
+            "left_geodesic": left_geodesic,
+            "right_geodesic": right_geodesic,
+            "top_geodesic": top_geodesic,
+            "bottom_geodesic": bottom_geodesic,
+            "pixel_height": height,
+            "pixel_width": width,
+        }
+
+        return Geometry
 
     ### setting up loop
 
@@ -399,64 +498,115 @@ def geocodeOffsets():
 
             print(f"A {program['pathtype']} detected for {program['program']}.")
 
+    if inps.ignore_ampcor == True:
+        print("\n*** Ignoring ampcor offsets (improves speed) ***")
+
     ### finding geometry
 
-    print("\n - Getting geometric bounds:\n")
-
-    lats = gdal.Open("geometry/lat.rdr.full")
-    lons = gdal.Open("geometry/lon.rdr.full")
-
-    lat = np.array(lats.GetRasterBand(1).ReadAsArray())
-    lon = np.array(lons.GetRasterBand(1).ReadAsArray())
-
-    lats = None
-    lons = None
-
-    height, width = np.shape(lat)
-
-    UpperLeft = (lat[0, -1], lon[0, -1])
-    UpperRight = (lat[0, 0], lon[0, 0])
-    LowerLeft = (lat[-1, -1], lon[-1, -1])
-    LowerRight = (lat[-1, 0], lon[-1, 0])
-
-    print("Upper left corner:", UpperLeft)
-    print("Upper right corner:", UpperRight)
-    print("Lower right corner", LowerRight)
-    print("Lower left corner", LowerLeft)
-
-    Geometry = {
-        "UpperLeft": UpperLeft,
-        "UpperRight": UpperRight,
-        "LowerRight": LowerRight,
-        "LowerLeft": LowerLeft,
-    }
+    Geometry = generateGeometry()
 
     # cleanup and intialize folder
+
+    print("\n - Starting geocode\n")
 
     os.system("rm -rf geocoded_offsets")
 
     os.mkdir("geocoded_offsets")
 
-    for geocode in to_geocode:
-        os.system(f"rm -rf {os.path.join('geocoded_offsets', geocode['program'])}")
-        os.mkdir(os.path.join("geocoded_offsets", geocode['program']))
+    # geocoding
 
-        if geocode['program'] == 'autoRIFT':
+    for geocode in to_geocode:
+        if geocode["program"] == "autoRIFT":
+            os.system(f"rm -rf {os.path.join('geocoded_offsets', geocode['program'])}")
+            os.mkdir(os.path.join("geocoded_offsets", geocode["program"]))
+
+            print(f"Geocoding for {geocode['program']}\n")
+
             try:
                 import h5py
-                f = h5py.File('offset.mat','r')
+
+                f = h5py.File("offset.mat", "r")
             except:
                 import scipy.io as sio
-                f = sio.loadmat('offset.mat')
 
-            array = np.fliplr(f['Dx'])
+                f = sio.loadmat("offset.mat")
 
-            print(array)
+            print(f"Geocoding pixel range offset:\n")
 
-            generateGeotiff(array, "dx", geocode['program'], Geometry)
+            xarray = np.fliplr(f["Dx"])
 
- 
+            generateGeotiff(xarray, "range_radar", geocode["program"], Geometry)
 
+            print(f"\nPixel to geographic distance conversion:")
+
+            xconv = (
+                (Geometry["top_geodesic"]["s12"] + Geometry["bottom_geodesic"]["s12"])
+                / 2
+                / Geometry["pixel_width"]
+            )
+            print(f"{xconv} meter/pixel\n")
+
+            xarray_conv = xarray * xconv
+
+            generateGeotiff(xarray_conv, "range", geocode["program"], Geometry)
+
+            print(f"\nGeocoding pixel azimuth offset:\n")
+
+            yarray = np.fliplr(f["Dy"])
+
+            generateGeotiff(yarray, "azimuth_radar", geocode["program"], Geometry)
+
+            print(f"\nPixel to geographic distance conversion:")
+
+            yconv = (
+                (Geometry["left_geodesic"]["s12"] + Geometry["right_geodesic"]["s12"])
+                / 2
+                / Geometry["pixel_height"]
+            )
+            print(f"{yconv} meter/pixel\n")
+
+            yarray_conv = yarray * yconv
+
+            generateGeotiff(yarray_conv, "azimuth", geocode["program"], Geometry)
+
+        elif geocode["program"] == "Ampcor" and inps.ignore_ampcor == False:
+            os.system(f"rm -rf {os.path.join('geocoded_offsets', geocode['program'])}")
+            os.mkdir(os.path.join("geocoded_offsets", geocode["program"]))
+
+            print(f"Geocoding for {geocode['program']}\n")
+
+            print(f"Geocoding range offset:\n")
+
+            in_ds = gdal.Open("offsets/range.off", gdal.GA_ReadOnly)
+            xarray = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
+            in_ds = None
+
+            generateGeotiff(xarray, "range", geocode["program"], Geometry)
+
+            print(f"\nGeocoding azimuth offset:\n")
+
+            in_ds = gdal.Open("offsets/azimuth.off", gdal.GA_ReadOnly)
+            yarray = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
+            in_ds = None
+
+            generateGeotiff(yarray, "azimuth", geocode["program"], Geometry)
+        elif geocode["program"] == "DenseAmpcor" and inps.ignore_ampcor == False:
+            os.system(f"rm -rf {os.path.join('geocoded_offsets', geocode['program'])}")
+            os.mkdir(os.path.join("geocoded_offsets", geocode["program"]))
+
+            print(f"Geocoding for {geocode['program']}\n")
+
+            # print(f"Geocoding range offset:\n")
+
+            # xarray = np.fliplr(f['Dx'])
+
+            # generateGeotiff(xarray, "range", geocode['program'], Geometry)
+
+            # print(f"\nGeocoding azimuth offset:\n")
+
+            # yarray = np.fliplr(f['Dy'])
+
+            # generateGeotiff(yarray, "azimuth", geocode['program'], Geometry)
 
 
 def runAutoRIFT():
@@ -934,7 +1084,7 @@ def main():
     if inps.geocode == True:
         logger.log("geocode_start", "Starting geocoding offsets")
 
-        geocodeOffsets()
+        geocodeOffsets(inps)
 
         logger.log("geocode_end", "Geocoding offsets finished")
     else:
