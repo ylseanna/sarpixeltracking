@@ -32,12 +32,13 @@ class Logger:
             args[key] = value
 
         jsondata = {
-            "metadata": {
+            "log_metadata": {
                 "program": "Pixel Tracking Pipeline",
                 "program_desc": "Generates pixel tracking offset in SAR data for various platforms",
                 "log_timestamp": t.timestamp(),
                 "log_isotime": t.isoformat(),
             },
+            "frame_metadata": [],
             "args": args,
             "logs": [],
             "errors": [],
@@ -72,6 +73,23 @@ class Logger:
             json.dump(json_object, file, indent=4)
 
         print(f"\n{t} - {description}\n")
+    
+    def addFrameMetadata(self, frame_name, frame_data):
+        import json
+
+        logdata = {
+            frame_name : frame_data,
+        }
+
+        with open("log.json", "r+") as file:
+            json_object = json.load(file)
+
+            json_object["frame_metadata"].append(logdata)
+            # Sets file's current position at offset.
+            file.seek(0)
+            # convert back to json.
+            json.dump(json_object, file, indent=4)
+
 
     def error(self, exctype, value, traceback):
         import json
@@ -127,6 +145,144 @@ def ErrorHandling(logger):
     sys.excepthook = attach_hook(log_exception, sys.excepthook)
 
 
+### Function for generating geotiffs based on geometry and array provided
+
+
+def generateGeotiff(
+    array, out_filename, folder, geometry, **kwargs
+):  # no extension on filename
+    downsample = kwargs.get(
+        "downsample", False
+    )  # optional arguments for after gdalwapr
+
+    import os
+    from osgeo import gdal, osr
+
+    driver = gdal.GetDriverByName("GTiff")
+
+    out_ds = driver.Create(
+        os.path.join(folder, out_filename + "_untranslated.tif"),
+        array.shape[1],
+        array.shape[0],
+        1,
+        gdal.GDT_Float32,
+    )
+
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+
+    out_ds.SetProjection(srs.ExportToWkt())
+
+    band = out_ds.GetRasterBand(1)
+    band.WriteArray(array)
+    band.FlushCache()
+    band.ComputeStatistics(False)
+
+    out_ds = None
+
+    os.system(
+        f"gdal_translate -r bilinear\
+                            -gcp 0 0 {geometry['UpperLeft'][1]} {geometry['UpperLeft'][0]} \
+                            -gcp {geometry['pixel_width']} 0 {geometry['UpperRight'][1]} {geometry['UpperRight'][0]} \
+                            -gcp {geometry['pixel_width']} {geometry['pixel_height']} {geometry['LowerRight'][1]} {geometry['LowerRight'][0]} \
+                            -gcp 0 {geometry['pixel_height']} {geometry['LowerLeft'][1]} {geometry['LowerLeft'][0]} \
+                            {os.path.join(folder, out_filename+'_untranslated.tif')} \
+                            {os.path.join(folder, out_filename+'_unwarped.tif')}"
+    )
+
+    if downsample == True:
+        out_name = os.path.join(folder, out_filename+'_uncompressed.tif')
+    else:
+        out_name = os.path.join(folder, out_filename+'.tif')
+
+    os.system(
+        f"gdalwarp \
+                   -r bilinear -t_srs EPSG:3057 -et 0 \
+                  {os.path.join(folder, out_filename+'_unwarped.tif')} \
+                  {out_name}"
+    )
+
+    if downsample == True:
+        print("\nExtra downsampling step")
+
+        os.system(
+            f"gdal_translate -r bilinear \
+                -outsize 3840 0 \
+                -co COMPRESS=LERC_ZSTD \
+                {os.path.join(folder, out_filename+'_uncompressed.tif')} \
+                {os.path.join(folder, out_filename+'.tif')}"
+        )
+
+        os.system
+
+    os.system(f"rm -rf {os.path.join(folder, out_filename+'_untranslated.tif')}")
+    os.system(f"rm -rf {os.path.join(folder, out_filename+'_unwarped.tif')}")
+    if downsample == True:
+        os.system(f"rm -rf {os.path.join(folder, out_filename+'_uncompressed.tif')}")
+
+
+def generateGeometry():
+    from osgeo import gdal
+    import numpy as np
+    from geographiclib.geodesic import Geodesic as geodesic
+
+    print("\n - Getting geometric bounds:\n")
+
+    lats = gdal.Open("geometry/lat.rdr.full")
+    lons = gdal.Open("geometry/lon.rdr.full")
+
+    lat = np.array(lats.GetRasterBand(1).ReadAsArray())
+    lon = np.array(lons.GetRasterBand(1).ReadAsArray())
+
+    lats = None
+    lons = None
+
+    height, width = np.shape(lat)
+
+    UpperLeft = (lat[0, -1], lon[0, -1])
+    UpperRight = (lat[0, 0], lon[0, 0])
+    LowerLeft = (lat[-1, -1], lon[-1, -1])
+    LowerRight = (lat[-1, 0], lon[-1, 0])
+
+    print("Upper left corner: ", UpperLeft)
+    print("Upper right corner:", UpperRight)
+    print("Lower right corner:", LowerRight)
+    print("Lower left corner: ", LowerLeft)
+
+    top_geodesic = geodesic.WGS84.Inverse(
+        UpperLeft[0], UpperLeft[1], UpperRight[0], UpperRight[1]
+    )
+    bottom_geodesic = geodesic.WGS84.Inverse(
+        LowerLeft[0], LowerLeft[1], LowerRight[0], LowerRight[1]
+    )
+    left_geodesic = geodesic.WGS84.Inverse(
+        UpperLeft[0], UpperLeft[1], LowerLeft[0], LowerLeft[1]
+    )
+    right_geodesic = geodesic.WGS84.Inverse(
+        UpperRight[0], UpperRight[1], LowerRight[0], LowerRight[1]
+    )
+
+    print("\nTop geodesic distance:   ", top_geodesic["s12"])
+    print("Bottom geodesic distance:", bottom_geodesic["s12"])
+    print("Left geodesic distance:  ", left_geodesic["s12"])
+    print("Right geodesic distance: ", right_geodesic["s12"])
+
+    Geometry = {
+        "UpperLeft": UpperLeft,
+        "UpperRight": UpperRight,
+        "LowerRight": LowerRight,
+        "LowerLeft": LowerLeft,
+        "left_geodesic": left_geodesic,
+        "right_geodesic": right_geodesic,
+        "top_geodesic": top_geodesic,
+        "bottom_geodesic": bottom_geodesic,
+        "pixel_height": height,
+        "pixel_width": width,
+    }
+
+    return Geometry
+
+
 ### Main functions
 
 
@@ -145,7 +301,7 @@ def argparse():
         "--file1",
         dest="file1",
         type=str,
-        required=False,  # Set to true eventually
+        required=True,
         help="Input filename 1 as found in the metadata database, typically reference. The program will automatically assign the earlier images as reference.",
     )
     parser.add_argument(
@@ -153,7 +309,7 @@ def argparse():
         "--file2",
         dest="file2",
         type=str,
-        required=False,  # Set to true eventually
+        required=True,
         help="Input filename 2 as found in the metadata database, typically secondary.",
     )
     parser.add_argument(
@@ -161,8 +317,8 @@ def argparse():
         "--dem",
         dest="DEM_file",
         type=str,
-        required=False,  # True
-        help=".dem file to be used by ISCE",
+        required=True,
+        help=".dem file to be used by ISCE for georeferencing",
     )
     parser.add_argument(
         "-dest",
@@ -170,7 +326,8 @@ def argparse():
         dest="destination",
         type=str,
         required=False,  # True
-        help="Target folder to store pipeline results (logs, previews, geocoded offsets)",
+        default=None,
+        help="Target folder to store pipeline results (logs, previews, geocoded offsets), if this parameter is not set, no files will be copied",
     )
     parser.add_argument(
         "--init",
@@ -240,124 +397,41 @@ def argparse():
 
 
 def generatePreviews():
-    print(" - Geocoding offsets\n")
+    print(" - Geocoding and subsampling .slc images\n")
     from osgeo import gdal
     import numpy as np
 
-    print("Getting geometry bounds:")
-
-    lats = gdal.Open("geometry/lat.rdr.full")
-    lons = gdal.Open("geometry/lon.rdr.full")
-
-    lat = np.array(lats.GetRasterBand(1).ReadAsArray())
-    lon = np.array(lons.GetRasterBand(1).ReadAsArray())
-
-    lats = None
-    lons = None
-
-    height, width = np.shape(lat)
-
-    UpperLeft = (lat[0, -1], lon[0, -1])
-    UpperRight = (lat[0, 0], lon[0, 0])
-    LowerLeft = (lat[-1, -1], lon[-1, -1])
-    LowerRight = (lat[-1, 0], lon[-1, 0])
-
-    print("Upper left corner:", UpperLeft)
-    print("Upper right corner:", UpperRight)
-    print("Lower right corner", LowerRight)
-    print("Lower left corner", LowerLeft)
+    Geometry = generateGeometry()
 
     import os
 
-    ### map project reference slc
+    os.system("rm -rf preview")
 
-    print("\nMap projecting the reference .slc image using GDAL\n")
+    os.mkdir("preview")
 
-    # cleanup
-
-    os.system("rm -rf reference_geotiff")
-
-    os.mkdir("reference_geotiff")
-
-    out_filename = "reference_geotiff/reference.tif"
+    print("\nGeocoding and subsampling reference .slc image using GDAL:\n")
 
     in_filename = "reference_slc/reference.slc"
 
-    driver = gdal.GetDriverByName("GTiff")
-
     in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
-    arr = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
-
-    out_ds = driver.Create(
-        out_filename, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32
-    )
-    out_ds.SetProjection(in_ds.GetProjection())
-
-    band = out_ds.GetRasterBand(1)
-    band.WriteArray(arr)
-    band.FlushCache()
-    band.ComputeStatistics(False)
-
+    in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
     in_ds = None
-    out_ds = None
 
-    command = f"gdal_translate \
-                    -gcp 0 0 {UpperLeft[1]} {UpperLeft[0]} \
-                    -gcp {width} 0 {UpperRight[1]} {UpperRight[0]} \
-                    -gcp {width} {height} {LowerRight[1]} {LowerRight[0]} \
-                    -gcp 0 {height} {LowerLeft[1]} {LowerLeft[0]} \
-                    reference_geotiff/reference.tif reference_geotiff/reference_projec.tif"
+    out_filename = "reference_preview"
 
-    os.system(command)
+    generateGeotiff(in_array, out_filename, "preview", Geometry, downsample=True)
 
-    os.system(
-        "gdalwarp -r bilinear -t_srs EPSG:32627 -et 0 -dstnodata -32767 reference_geotiff/reference_projec.tif reference_geotiff/reference_warp.tif"
-    )
-
-    ### map project secondary slc
-
-    print("\nMap projecting the coregistered secondary .slc image using GDAL\n")
-
-    # cleanup
-
-    os.system("rm -rf secondary_geotiff")
-
-    os.mkdir("secondary_geotiff")
-
-    out_filename = "secondary_geotiff/secondary.tif"
+    print("\nGeocoding and subsampling secondary .slc image using GDAL:\n")
 
     in_filename = "coregisteredSlc/refined_coreg.slc"
 
-    driver = gdal.GetDriverByName("GTiff")
-
     in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
-    arr = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
-
-    out_ds = driver.Create(
-        out_filename, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32
-    )
-    out_ds.SetProjection(in_ds.GetProjection())
-
-    band = out_ds.GetRasterBand(1)
-    band.WriteArray(arr)
-    band.FlushCache()
-    band.ComputeStatistics(False)
-
+    in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
     in_ds = None
-    out_ds = None
 
-    command = f"gdal_translate \
-                    -gcp 0 0 {UpperLeft[1]} {UpperLeft[0]} \
-                    -gcp {width} 0 {UpperRight[1]} {UpperRight[0]} \
-                    -gcp {width} {height} {LowerRight[1]} {LowerRight[0]} \
-                    -gcp 0 {height} {LowerLeft[1]} {LowerLeft[0]} \
-                    secondary_geotiff/secondary.tif secondary_geotiff/secondary_projec.tif"
+    out_filename = "secondary_preview"
 
-    os.system(command)
-
-    os.system(
-        "gdalwarp -r bilinear -t_srs EPSG:32627 -et 0 -dstnodata -32767 secondary_geotiff/secondary_projec.tif secondary_geotiff/secondary_warp.tif"
-    )
+    generateGeotiff(in_array, out_filename, "preview", Geometry, downsample=True)
 
     # ISN93 EPSG:3057
 
@@ -365,120 +439,8 @@ def generatePreviews():
 def geocodeOffsets(inps):
     import os
     import os.path
-    from osgeo import gdal, osr
+    from osgeo import gdal
     import numpy as np
-    from geographiclib.geodesic import Geodesic as geodesic
-
-    ### Function for generating geotiffs based on geometry and array provided
-
-    def generateGeotiff(
-        array, out_filename, folder, geometry
-    ):  # no extension on filename
-        driver = gdal.GetDriverByName("GTiff")
-
-        out_ds = driver.Create(
-            os.path.join(
-                "geocoded_offsets", folder, out_filename + "_untranslated.tif"
-            ),
-            array.shape[1],
-            array.shape[0],
-            1,
-            gdal.GDT_Float32,
-        )
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(4326)
-
-        out_ds.SetProjection(srs.ExportToWkt())
-
-        band = out_ds.GetRasterBand(1)
-        band.WriteArray(array)
-        band.FlushCache()
-        band.ComputeStatistics(False)
-
-        out_ds = None
-
-        os.system(
-            f"gdal_translate \
-                        -gcp 0 0 {geometry['UpperLeft'][1]} {geometry['UpperLeft'][0]} \
-                        -gcp {geometry['pixel_width']} 0 {geometry['UpperRight'][1]} {geometry['UpperRight'][0]} \
-                        -gcp {geometry['pixel_width']} {geometry['pixel_height']} {geometry['LowerRight'][1]} {geometry['LowerRight'][0]} \
-                        -gcp 0 {geometry['pixel_height']} {geometry['LowerLeft'][1]} {geometry['LowerLeft'][0]} \
-                        {os.path.join('geocoded_offsets', folder, out_filename+'_untranslated.tif')} \
-                        {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')}"
-        )
-
-        os.system(
-            f"gdalwarp \
-                   -r bilinear -t_srs EPSG:3057 -et 0 \
-                  {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')} \
-                  {os.path.join('geocoded_offsets', folder, out_filename+'.tif')}"
-        )
-
-        os.system(
-            f"rm -rf {os.path.join('geocoded_offsets', folder, out_filename+'_untranslated.tif')}"
-        )
-        os.system(
-            f"rm -rf {os.path.join('geocoded_offsets', folder, out_filename+'_unwarped.tif')}"
-        )
-
-    def generateGeometry():
-        print("\n - Getting geometric bounds:\n")
-
-        lats = gdal.Open("geometry/lat.rdr.full")
-        lons = gdal.Open("geometry/lon.rdr.full")
-
-        lat = np.array(lats.GetRasterBand(1).ReadAsArray())
-        lon = np.array(lons.GetRasterBand(1).ReadAsArray())
-
-        lats = None
-        lons = None
-
-        height, width = np.shape(lat)
-
-        UpperLeft = (lat[0, -1], lon[0, -1])
-        UpperRight = (lat[0, 0], lon[0, 0])
-        LowerLeft = (lat[-1, -1], lon[-1, -1])
-        LowerRight = (lat[-1, 0], lon[-1, 0])
-
-        print("Upper left corner: ", UpperLeft)
-        print("Upper right corner:", UpperRight)
-        print("Lower right corner:", LowerRight)
-        print("Lower left corner: ", LowerLeft)
-
-        top_geodesic = geodesic.WGS84.Inverse(
-            UpperLeft[0], UpperLeft[1], UpperRight[0], UpperRight[1]
-        )
-        bottom_geodesic = geodesic.WGS84.Inverse(
-            LowerLeft[0], LowerLeft[1], LowerRight[0], LowerRight[1]
-        )
-
-        left_geodesic = geodesic.WGS84.Inverse(
-            UpperLeft[0], UpperLeft[1], LowerLeft[0], LowerLeft[1]
-        )
-        right_geodesic = geodesic.WGS84.Inverse(
-            UpperRight[0], UpperRight[1], LowerRight[0], LowerRight[1]
-        )
-
-        print("\nTop geodesic distance:   ", top_geodesic["s12"])
-        print("Bottom geodesic distance:", bottom_geodesic["s12"])
-
-        print("Left geodesic distance:  ", left_geodesic["s12"])
-        print("Right geodesic distance: ", right_geodesic["s12"])
-
-        Geometry = {
-            "UpperLeft": UpperLeft,
-            "UpperRight": UpperRight,
-            "LowerRight": LowerRight,
-            "LowerLeft": LowerLeft,
-            "left_geodesic": left_geodesic,
-            "right_geodesic": right_geodesic,
-            "top_geodesic": top_geodesic,
-            "bottom_geodesic": bottom_geodesic,
-            "pixel_height": height,
-            "pixel_width": width,
-        }
-
-        return Geometry
 
     ### setting up loop
 
@@ -535,7 +497,12 @@ def geocodeOffsets(inps):
 
             xarray = np.fliplr(f["Dx"])
 
-            generateGeotiff(xarray, "range_radar", geocode["program"], Geometry)
+            generateGeotiff(
+                xarray,
+                "range_radar",
+                os.path.join("geocoded_offsets", geocode["program"]),
+                Geometry,
+            )
 
             print(f"\nPixel to geographic distance conversion:")
 
@@ -548,13 +515,23 @@ def geocodeOffsets(inps):
 
             xarray_conv = xarray * xconv
 
-            generateGeotiff(xarray_conv, "range", geocode["program"], Geometry)
+            generateGeotiff(
+                xarray_conv,
+                "range",
+                os.path.join("geocoded_offsets", geocode["program"]),
+                Geometry,
+            )
 
             print(f"\nGeocoding pixel azimuth offset:\n")
 
             yarray = np.fliplr(f["Dy"])
 
-            generateGeotiff(yarray, "azimuth_radar", geocode["program"], Geometry)
+            generateGeotiff(
+                yarray,
+                "azimuth_radar",
+                os.path.join("geocoded_offsets", geocode["program"]),
+                Geometry,
+            )
 
             print(f"\nPixel to geographic distance conversion:")
 
@@ -567,7 +544,12 @@ def geocodeOffsets(inps):
 
             yarray_conv = yarray * yconv
 
-            generateGeotiff(yarray_conv, "azimuth", geocode["program"], Geometry)
+            generateGeotiff(
+                yarray_conv,
+                "azimuth",
+                os.path.join("geocoded_offsets", geocode["program"]),
+                Geometry,
+            )
 
         elif geocode["program"] == "Ampcor" and inps.ignore_ampcor == False:
             os.system(f"rm -rf {os.path.join('geocoded_offsets', geocode['program'])}")
@@ -581,7 +563,12 @@ def geocodeOffsets(inps):
             xarray = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
             in_ds = None
 
-            generateGeotiff(xarray, "range", geocode["program"], Geometry)
+            generateGeotiff(
+                xarray,
+                "range",
+                os.path.join("geocoded_offsets", geocode["program"]),
+                Geometry,
+            )
 
             print(f"\nGeocoding azimuth offset:\n")
 
@@ -589,7 +576,12 @@ def geocodeOffsets(inps):
             yarray = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
             in_ds = None
 
-            generateGeotiff(yarray, "azimuth", geocode["program"], Geometry)
+            generateGeotiff(
+                yarray,
+                "azimuth",
+                os.path.join("geocoded_offsets", geocode["program"]),
+                Geometry,
+            )
         elif geocode["program"] == "DenseAmpcor" and inps.ignore_ampcor == False:
             os.system(f"rm -rf {os.path.join('geocoded_offsets', geocode['program'])}")
             os.mkdir(os.path.join("geocoded_offsets", geocode["program"]))
@@ -754,7 +746,7 @@ def runISCE():
     # )
 
 
-def init(file1, file2):
+def init(logger, file1, file2, demfile):
     """function that prepares the pipeline"""
 
     ### Imports
@@ -771,12 +763,6 @@ def init(file1, file2):
     os.system("rm -rf secondary*")
     os.system("rm *.xml")
 
-    # retrieve arguments
-
-    """ eventually change to input """
-
-    file1 = "ER01_SAR_IM__0P_19920524T123500_19920524T123517_UPA_04477_0000.CEOS.tar.gz"
-    file2 = "ER01_SAR_IM__0P_19930718T123508_19930718T123525_UPA_10489_0000.CEOS.tar.gz"
 
     print("Files selected:\n" + file1 + "\n" + file2)
 
@@ -818,6 +804,9 @@ def init(file1, file2):
     else:
         reference = file2
         secondary = file1
+
+    logger.addFrameMetadata('reference', reference)
+    logger.addFrameMetadata('secondary', secondary)
 
     print(
         "Reference:\n  Name:          "
@@ -962,7 +951,7 @@ def init(file1, file2):
     # stripmapApp.xml
     print("\nstripmapApp.xml:")
 
-    DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem"  # "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
+    # DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem"  # "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
 
     stripmapApp_xml = f"""
     <stripmapApp>
@@ -974,7 +963,7 @@ def init(file1, file2):
             <component name="secondary">
                 <catalog>secondary.xml</catalog>
             </component>
-            <property name="demFilename">{DEM_loc}</property>
+            <property name="demFilename">{demfile}</property>
             <property name="do denseoffsets">True</property>
         </component>
     </stripmapApp>"""
@@ -985,6 +974,48 @@ def init(file1, file2):
     f.write(stripmapApp_xml)
     f.close()
 
+def copyToDest(logger, destination):
+    import json
+    import os
+    import glob
+
+    print("Destination: "+destination)
+
+    if os.path.exists(destination) == False:
+        print("*** creating destination folder ***")
+        os.mkdir(destination)
+
+    
+    log = open('log.json')
+    logdata = json.load(log)
+
+    reference = logdata["frame_metadata"][0]["reference"]
+    secondary = logdata["frame_metadata"][1]["secondary"]
+    
+    subfolder = reference['begintime'][:10].replace("-", "")+'-'+secondary['begintime'][:10].replace("-", "")
+
+    print("\nSubfolder: "+subfolder)
+
+    if os.path.exists(os.path.join(destination, subfolder)) == False:
+        print("*** creating subfolder ***")
+        os.mkdir(os.path.join(destination, subfolder))
+
+    to_copy = [
+        "preview",
+        "geocoded_offsets",
+        "log.json",
+        "isce.log",
+        "offset.mat"
+    ]
+
+    for xml in glob.glob("*.xml"):
+        to_copy.append(xml)
+
+    print("\nCopying files: ")
+
+    for origin_folder in to_copy:
+        if os.path.exists(origin_folder):
+            os.system(f"cp -Rv {origin_folder} {os.path.join(destination, subfolder)}")
 
 ### Main loop
 
@@ -1016,7 +1047,7 @@ def main():
     if inps.init == True:
         logger.log("init_start", "Starting initialisation")
 
-        init(inps.file1, inps.file2)
+        init(logger, inps.file1, inps.file2, inps.DEM_file)
 
         logger.log("init_end", "Initialisation finished")
     else:
@@ -1089,6 +1120,28 @@ def main():
         logger.log("geocode_end", "Geocoding offsets finished")
     else:
         logger.log("geocode_skip", "Geocoding offsets skipped...")
+
+    ### Generate previews
+
+    if inps.preview == True:
+        logger.log("previews_start", "Starting generating previews")
+
+        generatePreviews()
+
+        logger.log("previews_end", "Generating previews finished")
+    else:
+        logger.log("previews_skip", "Generating previews skipped...")
+
+    ### Generate previews
+
+    if inps.destination != None:
+        logger.log("copy_start", "Copying results to destination folder")
+
+        copyToDest(logger, inps.destination)
+
+        logger.log("copy_end", "Copying finished")
+    else:
+        logger.log("copy_skip", "Copying results to destination folder skipped...")
 
     ### FINISH
 
