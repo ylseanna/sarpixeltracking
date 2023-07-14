@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 '''
-Just a simple script to import useable image file locations for the Tungnarkvislarjokull landslide project into the metadata database, currently set up to import files from the GEANT project in the folder ERS_new on the data disk.
+Just a simple script to import useable ESR image file locations for the Tungnarkvislarjokull landslide project into the metadata database, currently set up to import files from the GEANT project in the folder ERS_new on the data disk.
 '''
 
 import os

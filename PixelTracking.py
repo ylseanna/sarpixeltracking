@@ -157,6 +157,7 @@ def generateGeotiff(
 
     import os
     from osgeo import gdal, osr
+    import numpy as np
 
     driver = gdal.GetDriverByName("GTiff")
 
@@ -167,6 +168,8 @@ def generateGeotiff(
         1,
         gdal.GDT_Float32,
     )
+
+    height, width = np.shape(array)
 
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(4326)
@@ -183,9 +186,9 @@ def generateGeotiff(
     os.system(
         f"gdal_translate -r bilinear\
                             -gcp 0 0 {geometry['UpperLeft'][1]} {geometry['UpperLeft'][0]} \
-                            -gcp {geometry['pixel_width']} 0 {geometry['UpperRight'][1]} {geometry['UpperRight'][0]} \
-                            -gcp {geometry['pixel_width']} {geometry['pixel_height']} {geometry['LowerRight'][1]} {geometry['LowerRight'][0]} \
-                            -gcp 0 {geometry['pixel_height']} {geometry['LowerLeft'][1]} {geometry['LowerLeft'][0]} \
+                            -gcp {width} 0 {geometry['UpperRight'][1]} {geometry['UpperRight'][0]} \
+                            -gcp {width} {height} {geometry['LowerRight'][1]} {geometry['LowerRight'][0]} \
+                            -gcp 0 {height} {geometry['LowerLeft'][1]} {geometry['LowerLeft'][0]} \
                             {os.path.join(folder, out_filename+'_untranslated.tif')} \
                             {os.path.join(folder, out_filename+'_unwarped.tif')}"
     )
@@ -197,7 +200,7 @@ def generateGeotiff(
 
     os.system(
         f"gdalwarp \
-                   -r bilinear -t_srs EPSG:3057 -et 0 \
+                   -r bilinear -t_srs EPSG:4326 -et 0 -dstnodata nan \
                   {os.path.join(folder, out_filename+'_unwarped.tif')} \
                   {out_name}"
     )
@@ -411,7 +414,7 @@ def generatePreviews():
 
     print("\nGeocoding and subsampling reference .slc image using GDAL:\n")
 
-    in_filename = "reference_slc/reference.slc"
+    in_filename = "reference_slc_crop/reference.slc"
 
     in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
     in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
@@ -605,7 +608,7 @@ def runAutoRIFT():
     import os
 
     os.system(
-        "scripts/testautoRIFT.py -m reference_slc/reference.slc -s coregisteredSlc/refined_coreg.slc"
+        "scripts/testautoRIFT.py -m reference_slc_crop/reference.slc -s coregisteredSlc/refined_coreg.slc"
     )
 
 
@@ -965,6 +968,7 @@ def init(logger, file1, file2, demfile):
             </component>
             <property name="demFilename">{demfile}</property>
             <property name="do denseoffsets">True</property>
+            <property name="regionOfInterest">[63.699855,63.583704,-19.476357,-19.205132]</property>
         </component>
     </stripmapApp>"""
 
