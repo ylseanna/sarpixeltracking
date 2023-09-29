@@ -1,4 +1,4 @@
-# RANNIS2023PixelTracking
+# SAR Pixel Tracking Pipeline
 
 A number of scripts to run AutoRIFT with ISCE for PixelTracking applications on the University of Iceland's Dyngja computer
 
