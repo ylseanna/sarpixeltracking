@@ -41,7 +41,7 @@ response = input("\nRun the pipeline for this series of frames? [y, n]:")
 if response == "y":
     print("Starting series")
     for i in range(len(frames) - 1):
-        command = f"./PixelTracking.py -f1 {frames[i]} -f2 {frames[i + 1]} -d {dem_file} -dest ~/PixelTrackingRuns/{inps.folder} --ignore-ampcor"
+        command = f"./pixel_tracking.py -f1 {frames[i]} -f2 {frames[i + 1]} -d {dem_file} -dest ~/PixelTrackingRuns/{inps.folder} --ignore-ampcor"
 
         print("\nRun #" + str(i) + ":\n")
         os.system(command)
