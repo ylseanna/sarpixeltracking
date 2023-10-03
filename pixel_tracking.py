@@ -3,8 +3,6 @@
 """
 Base function for pixel tracking for this project
 
-Requires a file called MetaData.db containing the file locations of all files used in this project
-
 requires: gdal, geographiclib
 """
 
@@ -604,422 +602,6 @@ def geocodeOffsets(inps):
             # generateGeotiff(yarray, "azimuth", geocode['program'], Geometry)
 
 
-def runAutoRIFT():
-    import os
-
-    os.system(
-        "scripts/testautoRIFT.py -m reference_slc_crop/reference.slc -s coregisteredSlc/refined_coreg.slc"
-    )
-
-
-def runGeogridCompat(referenceFile, demFile):
-    """
-    Wire and run geogrid, taken from testGeogridOptical.py, but made to be compatible for the general translation step
-    """
-
-    from osgeo import gdal
-
-    dem_info = gdal.Info(demFile, format="json")
-    reference_info = gdal.Info(referenceFile, format="json")
-
-    from geogrid import GeogridOptical
-
-    obj = GeogridOptical()
-
-    obj.startingX = reference_info["geoTransform"][0]
-    obj.startingY = reference_info["geoTransform"][3]
-    obj.XSize = reference_info["geoTransform"][1]
-    obj.YSize = reference_info["geoTransform"][5]
-
-    import xml.etree.ElementTree as ET
-    from datetime import datetime
-
-    time1 = (
-        ET.parse("reference_slc.xml")
-        .find(
-            'component[@name="instance"]/component[@name="orbit"]/property[@name="min_time"]/value'
-        )
-        .text
-    )
-    time2 = (
-        ET.parse("secondary_slc.xml")
-        .find(
-            'component[@name="instance"]/component[@name="orbit"]/property[@name="min_time"]/value'
-        )
-        .text
-    )
-
-    t1 = datetime.strptime(time1, "%Y-%m-%d %H:%M:%S.%f")
-    t2 = datetime.strptime(time2, "%Y-%m-%d %H:%M:%S.%f")
-    deltat = t2 - t1
-    obj.repeatTime = deltat.total_seconds()
-
-    obj.numberOfLines = reference_info["size"][1]
-    obj.numberOfSamples = reference_info["size"][0]
-
-    obj.nodata_out = -32767
-    obj.chipSizeX0 = 240
-
-    obj.gridSpacingX = dem_info["geoTransform"][1]
-
-    obj.dat1name = referenceFile
-    obj.demname = demFile
-    #     obj.dhdxname = dhdx
-    #     obj.dhdyname = dhdy
-    #     obj.vxname = vx
-    #     obj.vyname = vy
-    #     obj.srxname = srx
-    #     obj.sryname = sry
-    #     obj.csminxname = csminx
-    #     obj.csminyname = csminy
-    #     obj.csmaxxname = csmaxx
-    #     obj.csmaxyname = csmaxy
-    # obj.ssmname = ssm
-    obj.winlocname = "window_location.tif"
-    obj.winoffname = "window_offset.tif"
-    obj.winsrname = "window_search_range.tif"
-    obj.wincsminname = "window_chip_size_min.tif"
-    obj.wincsmaxname = "window_chip_size_max.tif"
-    obj.winssmname = "window_stable_surface_mask.tif"
-    obj.winro2vxname = "window_rdr_off2vel_x_vec.tif"
-    obj.winro2vyname = "window_rdr_off2vel_y_vec.tif"
-    obj.winsfname = "window_scale_factor.tif"
-    ##dt-varying search range scale (srs) rountine parameters
-    obj.srs_dt_unity = 32
-    obj.srs_max_scale = 10
-    obj.srs_max_search = 20000
-    obj.srs_min_search = 0
-
-    obj.runGeogrid()
-
-    # run_info = {
-    #     'chipsizex0': obj.chipSizeX0,
-    #     'gridspacingx': obj.gridSpacingX,
-    #     'vxname': vx,
-    #     'vyname': vy,
-    #     'sxname': kwargs.get('dhdxs'),
-    #     'syname': kwargs.get('dhdys'),
-    #     'maskname': kwargs.get('sp'),
-    #     'xoff': obj.pOff,
-    #     'yoff': obj.lOff,
-    #     'xcount': obj.pCount,
-    #     'ycount': obj.lCount,
-    #     'dt': obj.repeatTime,
-    #     'epsg': kwargs.get('epsg'),
-    #     'XPixelSize': obj.X_res,
-    #     'YPixelSize': obj.Y_res,
-    #     'cen_lat': obj.cen_lat,
-    #     'cen_lon': obj.cen_lon,
-    # }
-
-    # return run_info
-
-
-def runISCE():
-    import os
-    from os import path
-
-    # cleanup
-
-    folders = [
-        "PICKLE",
-        "misreg",
-        "geometry",
-        "coregisteredSlc",
-        "offsets",
-        "denseOffsets",
-        "interferogram",
-    ]
-
-    for folder in folders:
-        if path.isdir(folder):
-            os.system(f"rm -rf {folder}")
-
-    if path.exists("demLat*"):
-        os.system("rm demLat*")
-
-    os.system("stripmapApp.py stripmapApp.xml --start=startup --end=refined_resample")
-
-    # os.system(
-    #         "stripmapApp.py stripmapApp.xml --start=startup --end=formslc"
-    # )
-
-    # os.system(
-    #         "stripmapApp.py stripmapApp.xml --start=verifyDEM --end=refined_resample"
-    # )
-
-
-def init(logger, file1, file2, demfile):
-    """function that prepares the pipeline"""
-
-    ### Imports
-
-    import os, glob
-    import sqlite3
-    from datetime import datetime
-
-    ### INPUT
-
-    # cleanup
-
-    os.system("rm -rf reference*")
-    os.system("rm -rf secondary*")
-    os.system("rm *.xml")
-
-
-    print("Files selected:\n" + file1 + "\n" + file2)
-
-    ### QUERY FILES and ASSIGN REF AND SEC
-
-    print("\n - Querying files...")
-
-    def query(query_str):
-        conn = sqlite3.connect("MetaData.db")
-
-        cursor = conn.execute(query_str)
-
-        results = {
-            "results": [
-                dict(zip([column[0] for column in cursor.description], row))
-                for row in cursor.fetchall()
-            ]
-        }
-
-        conn.close()
-
-        return results
-
-    files = query(
-        "SELECT * from frames WHERE filename = '{}' OR filename = '{}'".format(
-            file1, file2
-        )
-    )
-
-    file1, file2 = files["results"]
-
-    print("\nFiles succesfully queried:\n")
-
-    timedelta = timestamp(file1["begintime"]) - timestamp(file2["begintime"])
-
-    if timedelta.total_seconds() < 0:
-        reference = file1
-        secondary = file2
-    else:
-        reference = file2
-        secondary = file1
-
-    logger.addFrameMetadata('reference', reference)
-    logger.addFrameMetadata('secondary', secondary)
-
-    print(
-        "Reference:\n  Name:          "
-        + reference["filename"]
-        + "\n  Begin time:    "
-        + reference["begintime"]
-        + "\n  End time:      "
-        + reference["endtime"]
-        + "\n  Sensor:        "
-        + reference["sensor"]
-        + "\n  File location: "
-        + reference["fileloc"]
-    )
-    print(
-        "\nSecondary:\n  Name:          "
-        + secondary["filename"]
-        + "\n  Begin time:    "
-        + secondary["begintime"]
-        + "\n  End time:      "
-        + secondary["endtime"]
-        + "\n  Sensor:        "
-        + secondary["sensor"]
-        + "\n  File location: "
-        + secondary["fileloc"]
-    )
-
-    timedelta = timestamp(secondary["begintime"]) - timestamp(reference["begintime"])
-
-    print(
-        "\nPair information:\n  Baseline:      "
-        + str(timedelta)
-        + "\n  Track:         "
-        + str(reference["track"])
-        + "\n  Frame:         "
-        + str(reference["frame"])
-        + ""
-    )
-
-    ### CREATE XML files and processing folders
-
-    ### /home/data/orbits/ODR/ERS1
-    ### /home/data/orbits/ODR/ERS2
-
-    # Folders:
-
-    print("\n - Generating folder structure...")
-
-    # make sure ref_dir exists and is empty
-    if os.path.exists("./reference") == False:
-        os.mkdir("reference")
-    else:
-        files = glob.glob("./reference/*")
-        for f in files:
-            os.remove(f)
-
-    # make sure sec_dir exists and is empty
-    if os.path.exists("./secondary") == False:
-        os.mkdir("secondary")
-    else:
-        files = glob.glob("./secondary/*")
-        for f in files:
-            os.remove(f)
-
-    # Unpack images:
-
-    print("\n - Unpacking images...")
-
-    print("\nReference:\n")
-
-    os.system(f"tar -zvxf {reference['fileloc']} --directory ./reference")
-
-    print("\nSecondary:\n")
-
-    os.system(f"tar -zvxf {secondary['fileloc']} --directory ./secondary")
-
-    # Generate XML-files
-
-    print("\n - Generating XML-files...")
-
-    # reference
-    if reference["sensor"] == "ERS 1":
-        reference_orbitloc = "/home/data/orbits/ODR/ERS1"
-    elif reference["sensor"] == "ERS 2":
-        reference_orbitloc = "/home/data/orbits/ODR/ERS2"
-
-    print("\nreference.xml:")
-
-    reference_xml = f"""
-    <component name="Reference">
-        <property name="IMAGEFILE">
-            ./reference/DAT_01.001
-        </property>
-        <property name="LEADERFILE">
-            ./reference/LEA_01.001
-        </property>
-        <property name="OUTPUT">reference</property>
-        <property name="ORBIT_TYPE">
-            <value>ODR</value>
-        </property>
-        <property name="ORBIT_DIRECTORY">
-            <value>{reference_orbitloc}</value>
-        </property>
-    </component>"""
-
-    print(reference_xml)
-
-    f = open("reference.xml", "w")
-    f.write(reference_xml)
-    f.close()
-
-    # secondary
-    if secondary["sensor"] == "ERS 1":
-        secondary_orbitloc = "/home/data/orbits/ODR/ERS1"
-    elif secondary["sensor"] == "ERS 2":
-        secondary_orbitloc = "/home/data/orbits/ODR/ERS2"
-
-    print("\nsecondary.xml:")
-
-    secondary_xml = f"""
-    <component name="Secondary">
-        <property name="IMAGEFILE">
-            ./secondary/DAT_01.001
-        </property>
-        <property name="LEADERFILE">
-            ./secondary/LEA_01.001
-        </property>
-        <property name="OUTPUT">secondary</property>
-        <property name="ORBIT_TYPE">
-            <value>ODR</value>
-        </property>
-        <property name="ORBIT_DIRECTORY">
-            <value>{secondary_orbitloc}</value>
-        </property>
-    </component>"""
-
-    print(secondary_xml)
-
-    f = open("secondary.xml", "w")
-    f.write(secondary_xml)
-    f.close()
-
-    # stripmapApp.xml
-    print("\nstripmapApp.xml:")
-
-    # DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem"  # "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
-
-    stripmapApp_xml = f"""
-    <stripmapApp>
-        <component name="insar">
-            <property  name="Sensor name">ERS</property>
-            <component name="reference">
-                <catalog>reference.xml</catalog>
-            </component>
-            <component name="secondary">
-                <catalog>secondary.xml</catalog>
-            </component>
-            <property name="demFilename">{demfile}</property>
-            <property name="do denseoffsets">True</property>
-            <property name="regionOfInterest">[63.699855,63.583704,-19.476357,-19.205132]</property>
-        </component>
-    </stripmapApp>"""
-
-    print(stripmapApp_xml)
-
-    f = open("stripmapApp.xml", "w")
-    f.write(stripmapApp_xml)
-    f.close()
-
-def copyToDest(logger, destination):
-    import json
-    import os
-    import glob
-
-    print("Destination: "+destination)
-
-    if os.path.exists(destination) == False:
-        print("*** creating destination folder ***")
-        os.mkdir(destination)
-
-    
-    log = open('log.json')
-    logdata = json.load(log)
-
-    reference = logdata["frame_metadata"][0]["reference"]
-    secondary = logdata["frame_metadata"][1]["secondary"]
-    
-    subfolder = reference['begintime'][:10].replace("-", "")+'-'+secondary['begintime'][:10].replace("-", "")
-
-    print("\nSubfolder: "+subfolder)
-
-    if os.path.exists(os.path.join(destination, subfolder)) == False:
-        print("*** creating subfolder ***")
-        os.mkdir(os.path.join(destination, subfolder))
-
-    to_copy = [
-        "preview",
-        "geocoded_offsets",
-        "log.json",
-        "isce.log",
-        "offset.mat"
-    ]
-
-    for xml in glob.glob("*.xml"):
-        to_copy.append(xml)
-
-    print("\nCopying files: ")
-
-    for origin_folder in to_copy:
-        if os.path.exists(origin_folder):
-            os.system(f"cp -Rv {origin_folder} {os.path.join(destination, subfolder)}")
 
 ### Main loop
 
@@ -1047,8 +629,10 @@ def main():
     logger.log("start", "Starting program")
 
     ### INITIALISATION
-
+    
     if inps.init == True:
+        from init_pipeline import init
+        
         logger.log("init_start", "Starting initialisation")
 
         init(logger, inps.file1, inps.file2, inps.DEM_file)
@@ -1060,6 +644,8 @@ def main():
     ### ISCE
 
     if inps.isce == True:
+        from run_isce import runISCE
+        
         logger.log("isce_start", "Starting ISCE")
 
         runISCE()
@@ -1079,26 +665,12 @@ def main():
 
         logger.log("isce_end", "Dense offsets finished")
 
-    ### Start Geogrid
-
-    if inps.geogrid == True:
-        logger.log("Geogrid_start", "Starting Geogrid")
-
-        ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93
-        ## EPSG:32627
-
-        runGeogridCompat(
-            "reference_geotiff/reference_warp.tif",
-            "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif",
-        )
-
-        # os.system(
-        #     "testGeogridOptical.py -m reference_geotiff/reference_warp.tif -s secondary_geotiff/secondary_warp.tif -d demLat_N63_N65_Lon_W022_W018.dem.ISN93"
-        # )
 
     ### Start autoRIFT
 
     if inps.autoRIFT == True:
+        from run_autorift import runAutoRIFT
+        
         logger.log("autoRIFT_start", "Starting AutoRIFT")
 
         ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93
@@ -1139,9 +711,11 @@ def main():
     ### Generate previews
 
     if inps.destination != None:
+        from copy_to_dest import copy_to_dest
+        
         logger.log("copy_start", "Copying results to destination folder")
 
-        copyToDest(logger, inps.destination)
+        copy_to_dest(logger, inps.destination)
 
         logger.log("copy_end", "Copying finished")
     else:
