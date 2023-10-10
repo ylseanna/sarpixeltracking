@@ -150,8 +150,13 @@ def generate_previews():
     os.mkdir("preview")
 
     print("\nGeocoding and subsampling reference .slc image using GDAL:\n")
-
-    in_filename = "reference_slc_crop/reference.slc"
+    
+    
+    
+    if os.path.exists("reference_slc_crop"):
+        in_filename = "reference_slc_crop/reference.slc"
+    else:
+        in_filename = "reference_slc/reference.slc"
 
     in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
     in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
@@ -162,8 +167,12 @@ def generate_previews():
     generateGeotiff(in_array, out_filename, "preview", Geometry, downsample=True)
 
     print("\nGeocoding and subsampling secondary .slc image using GDAL:\n")
+    
+    if os.path.exists("secondary_slc_crop"):
+        in_filename = "secondary_slc_crop/secondary.slc"
+    else:
+        in_filename = "secondary_slc/secondary.slc"
 
-    in_filename = "coregisteredSlc/refined_coreg.slc"
 
     in_ds = gdal.Open(in_filename, gdal.GA_ReadOnly)
     in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
@@ -339,3 +348,114 @@ def geocode_offsets(inps):
             # yarray = np.fliplr(f['Dy'])
 
             # generateGeotiff(yarray, "azimuth", geocode['program'], Geometry)
+            
+
+def geocode_autoRIFT(inps):
+    """This function specifically geocodes the .mat file and transfers it to an xyz type table for use in plotting, implicitly uses the ISCE geometry files"""
+    from osgeo import gdal
+    import numpy as np
+
+    print(" - Importing .mat file\n")
+
+    try:
+        import h5py
+
+        offset = h5py.File("offset.mat", "r")
+    except:
+        import scipy.io as sio
+
+        offset = sio.loadmat("offset.mat")
+
+    dx = offset["Dx"]
+    dy = offset["Dy"]
+
+    print(" - Reading ISCE geometry files\n")
+
+    lats = gdal.Open("geometry/lat.rdr.full")
+    lons = gdal.Open("geometry/lon.rdr.full")
+    zs = gdal.Open("geometry/z.rdr.full")
+    loss = gdal.Open("geometry/los.rdr.full")
+
+    lat = np.array(lats.GetRasterBand(1).ReadAsArray())
+    lon = np.array(lons.GetRasterBand(1).ReadAsArray())
+    z = np.array(zs.GetRasterBand(1).ReadAsArray())
+    los = np.array(loss.GetRasterBand(1).ReadAsArray())
+    head = np.array(loss.GetRasterBand(2).ReadAsArray())
+
+    lats = None
+    lons = None
+    zs = None
+    loss = None
+
+    off_height, off_width = np.shape(dx)
+
+    isce_height, isce_width = np.shape(lat)
+
+    print("AutoRIFT dimensions:", off_height, off_width)
+
+    print("ISCE dimensions:", isce_height, isce_width)
+
+    height_conv = isce_height / off_height
+    width_conv = isce_width / off_width
+
+    print("\n - Interpolating ISCE geometry files for application to AutoRIFT offsets\n")
+
+    def interpolate(array, isce_width, isce_height, off_width, off_height):
+        from scipy.interpolate import RegularGridInterpolator
+
+        xrange = lambda x: np.linspace(0, 1, x)
+
+        f = RegularGridInterpolator(
+            (xrange(isce_width), xrange(isce_height)),
+            array.T,
+            method="linear",
+            bounds_error=False,
+        )
+
+        xxnew, yynew = np.meshgrid(
+            xrange(off_width), xrange(off_height), indexing="ij", sparse=True
+        )
+
+        interp = f((xxnew, yynew)).T
+
+        return interp
+
+    interp_lat = interpolate(lat, isce_width, isce_height, off_width, off_height)
+    interp_lon = interpolate(lon, isce_width, isce_height, off_width, off_height)
+    interp_z = interpolate(z, isce_width, isce_height, off_width, off_height)
+    interp_los = interpolate(los, isce_width, isce_height, off_width, off_height)
+    interp_head = interpolate(head, isce_width, isce_height, off_width, off_height)
+
+    print(" - Saving data file\n")
+
+
+    valid_vals = np.empty(shape=(0, 7))
+
+    for i in range(off_height):
+        for j in range(off_width):
+            if not np.isnan(dx[i, j]):
+                valid_vals = np.append(
+                    valid_vals,
+                    [
+                        [
+                            dx[i, j],
+                            dy[i, j],
+                            interp_lat[i, j],
+                            interp_lon[i, j],
+                            interp_z[i, j],
+                            interp_los[i, j],
+                            interp_head[i, j]
+                        ]
+                    ],
+                    axis=0,
+                )
+
+    print(f"Number of valid autoRIFT values: {len(valid_vals)}")
+
+    np.savetxt(
+        "geocoded_offsets/AutoRIFT.data",
+        valid_vals,
+        fmt="%25.15f",
+        delimiter=",",
+        header="Dx, Dy, Lat, Lon, z, incidence, heading",
+    )

@@ -520,7 +520,7 @@ def generateAutoriftProduct(indir_m, indir_s, grid_location, init_offset, search
         s_name = os.path.basename(indir_s)
 
         # FIXME: Filter width is a magic variable here and not exposed well.
-        preprocessing_filter_width = 5
+        preprocessing_filter_width = 2
         if nc_sensor == 'S1':
             preprocessing_filter_width = 21
 

@@ -216,6 +216,14 @@ def argparse():
         help="Determines whether to ignore Ampcor standard offsets as generated for the ISCE program in further processing.",
     )
     parser.add_argument(
+        "--interferogram",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        dest="interferogram",
+        required=False,
+        help="Determines whether to process the interferograms for the image pair using ISCE.",
+    )
+    parser.add_argument(
         "--denseOffsets",
         default=False,
         action=argparse.BooleanOptionalAction,
@@ -238,6 +246,14 @@ def argparse():
         dest="geocode",
         required=False,
         help="Determines whether to geocode the produced offset from each generator (ampcor, denseAmpcor, autoRIFT).",
+    )
+    parser.add_argument(
+        "--geocode-autoRIFT",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="geocodeAutoRIFT",
+        required=False,
+        help="Determines whether to geocode the produced autoRIFT offsets pixelwise",
     )
     parser.add_argument(
         "--previews",
@@ -296,22 +312,11 @@ def main():
         
         logger.log("isce_start", "Starting ISCE")
 
-        runISCE()
+        runISCE(logger, inps)
 
         logger.log("isce_end", "ISCE finished")
     else:
         logger.log("ISCE_skip", "ISCE skipped...")
-
-    ### DENSEOFFSETS
-
-    if inps.denseOffsets == True:
-        logger.log("denseOffsets_start", "Starting dense offsets")
-
-        os.system(
-            "stripmapApp.py stripmapApp.xml --start=dense_offsets --end=dense_offsets"
-        )
-
-        logger.log("isce_end", "Dense offsets finished")
 
 
     ### Start autoRIFT
@@ -346,6 +351,19 @@ def main():
         logger.log("geocode_end", "Geocoding offsets finished")
     else:
         logger.log("geocode_skip", "Geocoding offsets skipped...")
+        
+    ### Geocode offsets
+
+    if inps.geocodeAutoRIFT == True:
+        from geocode_outputs import geocode_autoRIFT
+        
+        logger.log("geocode_autoRIFT_start", "Starting geocoding autoRIFT")
+
+        geocode_autoRIFT(inps)
+
+        logger.log("geocode_autoRIFT_end", "Geocoding autoRIFT finished")
+    else:
+        logger.log("geocode_autoRIFT_skip", "Geocoding autoRIFT skipped...")
 
     ### Generate previews
 
