@@ -134,46 +134,46 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
     # reference
     if reference["platform"] == "ERS-1":
         reference_orbitloc = "/home/data/orbits/ODR/ERS1"
-        
+
         reference_orbit = f"""<property name="ORBIT_TYPE">
             <value>ODR</value>
         </property>
         <property name="ORBIT_DIRECTORY">
             <value>{reference_orbitloc}</value>
         </property>"""
-        
+
         reference_file = f"""<property name="IMAGEFILE">
             <value>{reference['fileloc']}</value>
         </property>"""
-        
+
         sensor_name = "ERS_EnviSAT"
     elif reference["platform"] == "ERS-2":
         reference_orbitloc = "/home/data/orbits/ODR/ERS2"
-        
+
         reference_orbit = f"""<property name="ORBIT_TYPE">
             <value>ODR</value>
         </property>
         <property name="ORBIT_DIRECTORY">
             <value>{reference_orbitloc}</value>
         </propertcdy>"""
-        
+
         reference_file = f"""<property name="IMAGEFILE">
             <value>{reference['fileloc']}</value>
         </property>"""
-        
+
         sensor_name = "ERS_EnviSAT"
-    elif reference["platform"] == "Envisat":       
+    elif reference["platform"] == "Envisat":
         reference_file = f"""<property name="IMAGEFILE">
             <value>{reference['fileloc']}</value>
         </property>"""
-        
+
         reference_orbit = f"""<property name="INSTRUMENTFILE">
             <value>"/home/yad2/sarpixeltracking/data/instrumentfiles/ASA_INS_AXVIEC20061220_105425_20030211_000000_20071231_000000"</value> 
         </property>
         <property name="ORBITFILE">
             <value>"/home/yad2/sarpixeltracking/data/orbitfiles/DOR_VOR_AXVF-P20201101_200200_20031115_215528_20031117_002328"</value> 
         </property>"""
-        
+
         sensor_name = "EnviSAT"
 
     print("\nreference.xml:")
@@ -194,13 +194,13 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
     # secondary
     if secondary["platform"] == "ERS-1":
         secondary_orbitloc = "/home/data/orbits/ODR/ERS1"
-        
+
         secondary_fileloc = f"""<property name="IMAGEFILE">
             <value>{secondary['fileloc']}</value>
         </property>"""
     elif secondary["platform"] == "ERS-2":
         secondary_orbitloc = "/home/data/orbits/ODR/ERS2"
-        
+
         secondary_fileloc = f"""<property name="IMAGEFILE">
             <value>{secondary['fileloc']}</value>
         </property>"""
@@ -208,14 +208,13 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
         secondary_file = f"""<property name="IMAGEFILE">
             <value>{secondary['fileloc']}</value>
         </property>"""
-        
+
         secondary_orbit = f"""<property name="INSTRUMENTFILE">
             <value>"/home/yad2/sarpixeltracking/data/instrumentfiles/ASA_INS_AXVIEC20061220_105425_20030211_000000_20071231_000000"</value> 
         </property>
         <property name="ORBITFILE">
             <value>"/home/yad2/sarpixeltracking/data/orbitfiles/DOR_VOR_AXVF-P20201101_203000_20040124_215528_20040126_002328"</value> 
         </property>"""
-
 
     print("\nsecondary.xml:")
 
@@ -249,7 +248,6 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
             </component>
             <property name="demFilename">{demfile}</property>
             <property name="do denseoffsets">True</property>
-            <!--<property name="regionOfInterest">[63.615914,63.697878,-19.500389,-19.240837]</property>-->
         </component>
     </stripmapApp>"""
 
@@ -257,4 +255,27 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
 
     f = open("stripmapApp.xml", "w")
     f.write(stripmapApp_xml)
+    f.close()
+
+    # stripmapApp.xml
+    print("\ndense.xml:")
+
+    # DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem"  # "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
+
+    dense_xml = f"""
+    <stripmapAppDenseAmpcor>
+        <component name="dense">
+            <property name="Ampcor window width">64</property>
+            <property name="Ampcor window height">256</property>
+            <property name="Ampcor search window width">10</property>
+            <property name="Ampcor search window height">40</property>
+            <property name="Ampcor skip width">128</property>
+            <property name="Ampcor skip height">32</property>
+        </component>
+    </stripmapAppDenseAmpcor>"""
+
+    print(dense_xml)
+
+    f = open("dense.xml", "w")
+    f.write(dense_xml)
     f.close()

@@ -65,6 +65,8 @@ def cmdLineParse():
             help='Input chip size min file name')
     parser.add_argument('-csmax', '--input_csmax', dest='chip_size_max', type=str, required=False,
             help='Input chip size max file name')
+    # parser.add_argument('-wfw', '--filter_window', dest='offset2vx', type=str, required=False,
+    #         help='Input pixel offsets to vx conversion coefficients file name')
     parser.add_argument('-vx', '--input_vx', dest='offset2vx', type=str, required=False,
             help='Input pixel offsets to vx conversion coefficients file name')
     parser.add_argument('-vy', '--input_vy', dest='offset2vy', type=str, required=False,
@@ -138,11 +140,11 @@ def runAutorift(I1, I2, xGrid, yGrid, Dx0, Dy0, SRx0, SRy0, CSMINx0, CSMINy0, CS
     Wire and run autoRIFT.
     '''
 
-#    import isce
-#    from components.contrib.geo_autoRIFT.autoRIFT import autoRIFT_ISCE
+    import isce
+    from components.contrib.geo_autoRIFT.autoRIFT import autoRIFT_ISCE
     from autoRIFT import autoRIFT
     import numpy as np
-#    import isceobj
+    import isceobj
     import time
     import subprocess
 
@@ -168,22 +170,28 @@ def runAutorift(I1, I2, xGrid, yGrid, Dx0, Dy0, SRx0, SRy0, CSMINx0, CSMINy0, CS
     obj.I2 = I2
 
     # test with lena image (533 X 533)
-#    obj.ChipSizeMinX=16
-#    obj.ChipSizeMaxX=32
-#    obj.ChipSize0X=16
-#    obj.SkipSampleX=16
-#    obj.SkipSampleY=16
+    # obj.ChipSizeMinX=16
+    # obj.ChipSizeMaxX=32
+    # obj.ChipSize0X=16
+    # obj.SkipSampleX=16
+    # obj.SkipSampleY=16
 
     # test with Venus image (407 X 407)
-#    obj.ChipSizeMinX=8
-#    obj.ChipSizeMaxX=16
-#    obj.ChipSize0X=8
-#    obj.SkipSampleX=8
-#    obj.SkipSampleY=8
+    # obj.ChipSizeMinX=8
+    # obj.ChipSizeMaxX=16
+    # obj.ChipSize0X=8
+    # obj.SkipSampleX=8
+    # obj.SkipSampleY=8
 
     # test with small tiff images
-#    obj.SkipSampleX=16
-#    obj.SkipSampleY=16
+    # obj.SkipSampleX=16
+    # obj.SkipSampleY=16
+    
+    obj.ChipSizeMinX=4
+    obj.ChipSizeMaxX=8
+    obj.ChipSize0X=4
+    obj.SkipSampleX=4
+    obj.SkipSampleY=4
 
     # create the grid if it does not exist
     if xGrid is None:
@@ -253,7 +261,7 @@ def runAutorift(I1, I2, xGrid, yGrid, Dx0, Dy0, SRx0, SRy0, CSMINx0, CSMINy0, CS
         # obj.ChipSizeMaxX = obj.ChipSizeMaxX / obj.ChipSizeMaxX * 544
         # obj.ChipSizeMinX = obj.ChipSizeMinX / obj.ChipSizeMinX * 68
     else:
-        if ((optflag == 1)&(xGrid is not None)):
+        if ((optflag == 1)&(xGrid is None)):
             obj.ChipSizeMaxX = 32
             obj.ChipSizeMinX = 16
             obj.ChipSize0X = 16
@@ -315,9 +323,9 @@ def runAutorift(I1, I2, xGrid, yGrid, Dx0, Dy0, SRx0, SRy0, CSMINx0, CSMINy0, CS
     obj.uniform_data_type()
     print("Uniform Data Type Done")
 
-#    pdb.set_trace()
+    # pdb.set_trace()
 
-#    obj.sparseSearchSampleRate = 16
+    obj.sparseSearchSampleRate = 16
 
     obj.OverSampleRatio = 64
 #    obj.colfiltChunkSize = 4
@@ -328,59 +336,60 @@ def runAutorift(I1, I2, xGrid, yGrid, Dx0, Dy0, SRx0, SRy0, CSMINx0, CSMINy0, CS
     if CSMINx0 is not None:
         if (optflag == 1):
             obj.OverSampleRatio = {obj.ChipSize0X:16,obj.ChipSize0X*2:32,obj.ChipSize0X*4:64,obj.ChipSize0X*8:64}
+            print("OverSampleRatio:", obj.OverSampleRatio)
         else:
             obj.OverSampleRatio = {obj.ChipSize0X:32,obj.ChipSize0X*2:64,obj.ChipSize0X*4:128,obj.ChipSize0X*8:128}
 
 
 
 #    ########## export preprocessed images to files; can be commented out if not debugging
-#
-#    t1 = time.time()
-#
-#    I1 = obj.I1
-#    I2 = obj.I2
-#
-#    length,width = I1.shape
-#
-#    filename1 = 'I1_uint8_hpsnew.off'
-#
-#    slcFid = open(filename1, 'wb')
-#
-#    for yy in range(length):
-#        data = I1[yy,:]
-#        data.astype(np.float32).tofile(slcFid)
-#
-#    slcFid.close()
-#
-#    img = isceobj.createOffsetImage()
-#    img.setFilename(filename1)
-#    img.setBands(1)
-#    img.setWidth(width)
-#    img.setLength(length)
-#    img.setAccessMode('READ')
-#    img.renderHdr()
-#
-#
-#    filename2 = 'I2_uint8_hpsnew.off'
-#
-#    slcFid = open(filename2, 'wb')
-#
-#    for yy in range(length):
-#        data = I2[yy,:]
-#        data.astype(np.float32).tofile(slcFid)
-#
-#    slcFid.close()
-#
-#    img = isceobj.createOffsetImage()
-#    img.setFilename(filename2)
-#    img.setBands(1)
-#    img.setWidth(width)
-#    img.setLength(length)
-#    img.setAccessMode('READ')
-#    img.renderHdr()
-#
-#    print("output Done!!!")
-#    print(time.time()-t1)
+
+    t1 = time.time()
+
+    I1 = obj.I1
+    I2 = obj.I2
+
+    length,width = I1.shape
+
+    filename1 = 'I1_uint8_hpsnew.off'
+
+    slcFid = open(filename1, 'wb')
+
+    for yy in range(length):
+        data = I1[yy,:]
+        data.astype(np.float32).tofile(slcFid)
+
+    slcFid.close()
+
+    img = isceobj.createOffsetImage()
+    img.setFilename(filename1)
+    img.setBands(1)
+    img.setWidth(width)
+    img.setLength(length)
+    img.setAccessMode('READ')
+    img.renderHdr()
+
+
+    filename2 = 'I2_uint8_hpsnew.off'
+
+    slcFid = open(filename2, 'wb')
+
+    for yy in range(length):
+        data = I2[yy,:]
+        data.astype(np.float32).tofile(slcFid)
+
+    slcFid.close()
+
+    img = isceobj.createOffsetImage()
+    img.setFilename(filename2)
+    img.setBands(1)
+    img.setWidth(width)
+    img.setLength(length)
+    img.setAccessMode('READ')
+    img.renderHdr()
+
+    print("output Done!!!")
+    print(time.time()-t1)
 
 
     ########## run Autorift
@@ -520,7 +529,7 @@ def generateAutoriftProduct(indir_m, indir_s, grid_location, init_offset, search
         s_name = os.path.basename(indir_s)
 
         # FIXME: Filter width is a magic variable here and not exposed well.
-        preprocessing_filter_width = 2
+        preprocessing_filter_width = 5
         if nc_sensor == 'S1':
             preprocessing_filter_width = 21
 
