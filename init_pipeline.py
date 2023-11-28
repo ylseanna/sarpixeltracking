@@ -168,10 +168,10 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
         </property>"""
 
         reference_orbit = f"""<property name="INSTRUMENTFILE">
-            <value>"/home/yad2/sarpixeltracking/data/instrumentfiles/ASA_INS_AXVIEC20061220_105425_20030211_000000_20071231_000000"</value> 
+            <value>"/home/yadevries/sarpixeltracking/data/instrumentfiles/ASA_INS_AXVIEC20061220_105425_20030211_000000_20071231_000000"</value> 
         </property>
         <property name="ORBITFILE">
-            <value>"/home/yad2/sarpixeltracking/data/orbitfiles/DOR_VOR_AXVF-P20201101_200200_20031115_215528_20031117_002328"</value> 
+            <value>"/home/yadevries/sarpixeltracking/data/orbitfiles/DOR_VOR_AXVF-P20201101_200200_20031115_215528_20031117_002328"</value> 
         </property>"""
 
         sensor_name = "EnviSAT"
@@ -210,10 +210,10 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
         </property>"""
 
         secondary_orbit = f"""<property name="INSTRUMENTFILE">
-            <value>"/home/yad2/sarpixeltracking/data/instrumentfiles/ASA_INS_AXVIEC20061220_105425_20030211_000000_20071231_000000"</value> 
+            <value>"/home/yadevries/sarpixeltracking/data/instrumentfiles/ASA_INS_AXVIEC20061220_105425_20030211_000000_20071231_000000"</value> 
         </property>
         <property name="ORBITFILE">
-            <value>"/home/yad2/sarpixeltracking/data/orbitfiles/DOR_VOR_AXVF-P20201101_203000_20040124_215528_20040126_002328"</value> 
+            <value>"/home/yadevries/sarpixeltracking/data/orbitfiles/DOR_VOR_AXVF-P20201101_203000_20040124_215528_20040126_002328"</value> 
         </property>"""
 
     print("\nsecondary.xml:")
