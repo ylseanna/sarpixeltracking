@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os 
+import os
 from osgeo import gdal
 import numpy as np
 
@@ -45,13 +45,10 @@ parser.add_argument(
 
 inps = parser.parse_args()
 
-def generateGeotiff(
+
+def generateGeotiffvmap(
     array, out_filename, folder, geometry, **kwargs
 ):  # no extension on filename
-    downsample = kwargs.get(
-        "downsample", False
-    )  # optional arguments for after gdalwapr
-
     import os
     from osgeo import gdal, osr
     import numpy as np
@@ -68,8 +65,12 @@ def generateGeotiff(
 
     height, width = np.shape(array)
 
+    EPSG = 3857 #8086 #9039  # 3057
+    
     srs = osr.SpatialReference()
-    srs.ImportFromEPSG(4326)
+    srs.ImportFromEPSG(EPSG)
+
+    print(srs.ExportToWkt())
 
     out_ds.SetProjection(srs.ExportToWkt())
 
@@ -81,7 +82,7 @@ def generateGeotiff(
     out_ds = None
 
     os.system(
-        f"gdal_translate -r bilinear\
+        f"gdal_translate -r bilinear \
                             -gcp 0 0 {geometry['UpperLeft'][1]} {geometry['UpperLeft'][0]} \
                             -gcp {width} 0 {geometry['UpperRight'][1]} {geometry['UpperRight'][0]} \
                             -gcp {width} {height} {geometry['LowerRight'][1]} {geometry['LowerRight'][0]} \
@@ -90,37 +91,22 @@ def generateGeotiff(
                             {os.path.join(folder, out_filename+'_unwarped.tif')}"
     )
 
-    if downsample == True:
-        out_name = os.path.join(folder, out_filename+'_uncompressed.tif')
-    else:
-        out_name = os.path.join(folder, out_filename+'.tif')
-
     os.system(
         f"gdalwarp \
-                   -r bilinear -t_srs EPSG:4326 -et 0 -dstnodata nan \
+                   -r bilinear -t_srs EPSG:{EPSG} -et 0 -dstnodata nan \
                   {os.path.join(folder, out_filename+'_unwarped.tif')} \
-                  {out_name}"
+                  {os.path.join(folder, out_filename+'_untiled.tif')}"
     )
-    
-    os.system(f"gdal_translate -co TILED=yes -co BLOCKXSIZE=256 -co BLOCKYSIZE=256 {out_name} {os.path.join(folder, out_filename+'_tiled.tif')}")
 
-    if downsample == True:
-        print("\nExtra downsampling step")
+    os.system(
+        f"gdal_translate -co TILED=yes -co BLOCKXSIZE=128 -co BLOCKYSIZE=256 {os.path.join(folder, out_filename+'_untiled.tif')} {os.path.join(folder, out_filename+'.tif')}"
+    )
 
-        os.system(
-            f"gdal_translate -r bilinear \
-                -outsize 3840 0 \
-                -co COMPRESS=LERC_ZSTD \
-                {os.path.join(folder, out_filename+'_uncompressed.tif')} \
-                {os.path.join(folder, out_filename+'.tif')}"
-        )
 
-        os.system
+    # os.system(f"rm -rf {os.path.join(folder, out_filename+'_untranslated.tif')}")
+    # os.system(f"rm -rf {os.path.join(folder, out_filename+'_unwarped.tif')}")
+    # os.system(f"rm -rf {os.path.join(folder, out_filename+'_untiled.tif')}")
 
-    os.system(f"rm -rf {os.path.join(folder, out_filename+'_untranslated.tif')}")
-    os.system(f"rm -rf {os.path.join(folder, out_filename+'_unwarped.tif')}")
-    if downsample == True:
-        os.system(f"rm -rf {os.path.join(folder, out_filename+'_uncompressed.tif')}")
 
 
 def generateGeometry():
@@ -184,21 +170,37 @@ def generateGeometry():
 
     return Geometry
 
+
 folder1 = "reference_tif"
 folder2 = "coreg_secondary_tif"
 
-if inps.geocode==True:
+import json
+
+log = open("log.json")
+logdata = json.load(log)
+
+reference = logdata["frame_metadata"][0]["reference"]
+secondary = logdata["frame_metadata"][1]["secondary"]
+
+referencetimestring = reference["begintime"][:10].replace("-", "")
+secondarytimestring = secondary["begintime"][:10].replace("-", "")
+
+print(referencetimestring, secondarytimestring)
+
+if inps.geocode == True:
     Geometry = generateGeometry()
 
-    
-    
     os.system(f"rm -rf {folder1}")
     os.mkdir(folder1)
     os.system(f"rm -rf {folder2}")
     os.mkdir(folder2)
 
-    fn1 = "/home/yadevries/sarpixeltracking/reference_slc/reference.slc"
-    fn2 = "/home/yadevries/sarpixeltracking/coregisteredSlc/refined_coreg.slc"
+    if os.path.exists("reference_slc_crop"):
+        fn1 = "reference_slc_crop/reference.slc"
+    else:
+        fn1 = "reference_slc/reference.slc"
+
+    fn2 = "coregisteredSlc/refined_coreg.slc"
 
     ### Reference
 
@@ -206,9 +208,9 @@ if inps.geocode==True:
     in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
     in_ds = None
 
-    out_filename1 = "reference"
+    out_filename1 = "reference_" + referencetimestring
 
-    generateGeotiff(in_array, out_filename1, folder1, Geometry, downsample=False)
+    generateGeotiffvmap(in_array, out_filename1, folder1, Geometry)
 
     ### Secondary
 
@@ -216,18 +218,18 @@ if inps.geocode==True:
     in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
     in_ds = None
 
-    out_filename2 = "secondary"
+    out_filename2 = "secondary_" + secondarytimestring
 
-    generateGeotiff(in_array, out_filename2, folder2, Geometry, downsample=False)
+    generateGeotiffvmap(in_array, out_filename2, folder2, Geometry)
 
 
 ### location: /home/yadevries/anaconda3/lib/python3.10/site-packages/vmap added to path, make sure to they are executable
 ## to try: gdal_translate -co TILED=yes -co BLOCKXSIZE=256 -co BLOCKYSIZE=256 input.tif output.tif
 
-if inps.vmap ==True:
+if inps.vmap == True:
     cwd = os.getcwd()
 
-    command = f"vmap.py {os.path.join(cwd, folder1, 'reference_tiled.tif')} {os.path.join(cwd, folder2, 'secondary_tiled.tif')}"
+    command = f"vmap.py {os.path.join(cwd, folder1, 'reference_'+referencetimestring+'.tif')} {os.path.join(cwd, folder2, 'secondary_'+secondarytimestring+'.tif')} -kernel 35 -erode 1024 -refinement 2"
 
     print(command)
 
