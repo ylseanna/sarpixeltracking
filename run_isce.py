@@ -21,18 +21,7 @@ def runISCE(logger, inps):
     if path.exists("demLat*"):
         os.system("rm demLat*")
 
-    os.system("stripmapApp.py stripmapApp.xml --start=startup  --end=topo")
-    
-    ### DENSEOFFSETS
-
-    if inps.interferogram == True or inps.denseOffsets == True:
-        logger.log("offset_resampling_start", "Starting offsets and resampling")
-
-        os.system(
-            "stripmapApp.py stripmapApp.xml --start=geo2rdr --end=refined_resample"
-        )
-
-        logger.log("offset_resampling_end", "Offsets and resampling finished")
+    os.system("stripmapApp.py stripmapApp.xml --start=startup  --end=refined_resample")
     
     ### DENSEOFFSETS
 

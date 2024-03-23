@@ -26,13 +26,237 @@ def init(logger, file1, file2, demfile):
 
     print("\n - Querying files...")
 
-    # if file1.endswith(".CEOS.tar.gz"):
-    # generate_files_ERS_CEOS(logger, file1, file2, demfile) # NEEDS TO BE ADJUSTED TO NOT USE THE DATABASE
+    if file1.endswith(".CEOS.tar.gz"):
+        print("\nERS 1,2 or EnVISAT files in old raw data format detected\n")
+        
+        generate_files_ERS_CEOS(logger, file1, file2, demfile) # NEEDS TO BE ADJUSTED TO NOT USE THE DATABASE
     if file1.endswith((".E1", ".E2", ".N1")):
+        print("\nEnVISAT data format detected\n")
+
         generate_files_Envisat_format(logger, file1, file2, demfile)
     if os.path.basename(file1).startswith(("TSX", "TDX")):
+        print("TerraSAR-X data format detected\n")
+        
         generate_files_TSX_format(logger, file1, file2, demfile)
 
+def generate_files_ERS_CEOS(logger, file1, file2, demfile):
+    import os
+    from datetime import datetime
+    from glob import glob
+    
+
+    reference = {}
+    secondary = {}
+
+    reference["fileloc"] = file1
+    secondary["fileloc"] = file2
+
+    reference["filename"] = os.path.basename(file1)
+    secondary["filename"] = os.path.basename(file2)
+
+    basef1, extf1 = os.path.splitext(os.path.basename(file1))
+
+    basef2, extf2 = os.path.splitext(os.path.basename(file2))
+
+    if basef1.startswith("ER01"):
+        reference["platform"] = "ERS-1"
+    elif basef1.startswith("ER02"):
+        reference["platform"] = "ERS-2"
+
+    if basef2.startswith("ER01"):
+        secondary["platform"] = "ERS-1"
+    elif basef2.startswith("ER02"):
+        secondary["platform"] = "ERS-2"
+        
+    from pygeotools.lib import timelib
+
+
+    reference["begintime"] = timelib.fn_getdatetime_list(basef1)[0]
+
+    secondary["begintime"] = timelib.fn_getdatetime_list(basef2)[0]
+    
+    print(
+        "Reference:\n  Name:          "
+        + reference["filename"]
+        + "\n  Begin time:    "
+        + reference["begintime"].isoformat()
+        + "\n  Platform:      "
+        + reference["platform"]
+        + "\n  File location: "
+        + reference["fileloc"]
+    )
+    print(
+        "\nSecondary:\n  Name:          "
+        + secondary["filename"]
+        + "\n  Begin time:    "
+        + secondary["begintime"].isoformat()
+        + "\n  Platform:      "
+        + secondary["platform"]
+        + "\n  File location: "
+        + secondary["fileloc"]
+    )
+
+    timedelta = secondary["begintime"] - reference["begintime"]
+
+    print(
+        "\nPair information:\n  Baseline:      "
+        + str(timedelta)
+    )
+
+    reference["begintime"] = reference["begintime"].isoformat()
+    secondary["begintime"] = secondary["begintime"].isoformat()
+
+    logger.addFrameMetadata("reference", reference)
+    logger.addFrameMetadata("secondary", secondary)
+    
+    # Folders:
+
+    print("\n - Generating folder structure...")
+
+    # make sure ref_dir exists and is empty
+    if os.path.exists("./reference") == False:
+        os.mkdir("reference")
+    else:
+        files = glob("./reference/*")
+        for f in files:
+            os.remove(f)
+
+    # make sure sec_dir exists and is empty
+    if os.path.exists("./secondary") == False:
+        os.mkdir("secondary")
+    else:
+        files = glob("./secondary/*")
+        for f in files:
+            os.remove(f)
+            
+            
+    print("\n - Unpacking images...")
+
+    print("\nReference:\n")
+
+    os.system(f"tar -zvxf {reference['fileloc']} --directory ./reference")
+
+    print("\nSecondary:\n")
+
+    os.system(f"tar -zvxf {secondary['fileloc']} --directory ./secondary")
+    
+    
+
+    # Generate XML-files
+
+    print("\n - Generating XML-files...")
+
+    # reference
+    if reference["platform"] == "ERS-1":
+        reference_orbitloc = "/home/data/orbits/ODR/ERS1"
+    elif reference["platform"] == "ERS-2":
+        reference_orbitloc = "/home/data/orbits/ODR/ERS2"
+
+    print("\nreference.xml:")
+
+    reference_xml = f"""
+    <component name="Reference">
+        <property name="IMAGEFILE">
+            ./reference/DAT_01.001
+        </property>
+        <property name="LEADERFILE">
+            ./reference/LEA_01.001
+        </property>
+        <property name="OUTPUT">reference</property>
+        <property name="ORBIT_TYPE">
+            <value>ODR</value>
+        </property>
+        <property name="ORBIT_DIRECTORY">
+            <value>{reference_orbitloc}</value>
+        </property>
+    </component>"""
+
+    print(reference_xml)
+
+    f = open("reference.xml", "w")
+    f.write(reference_xml)
+    f.close()
+
+    # secondary
+    if secondary["platform"] == "ERS-1":
+        secondary_orbitloc = "/home/data/orbits/ODR/ERS1"
+    elif secondary["platform"] == "ERS-2":
+        secondary_orbitloc = "/home/data/orbits/ODR/ERS2"
+
+    print("\nsecondary.xml:")
+
+    secondary_xml = f"""
+    <component name="Secondary">
+        <property name="IMAGEFILE">
+            ./secondary/DAT_01.001
+        </property>
+        <property name="LEADERFILE">
+            ./secondary/LEA_01.001
+        </property>
+        <property name="OUTPUT">secondary</property>
+        <property name="ORBIT_TYPE">
+            <value>ODR</value>
+        </property>
+        <property name="ORBIT_DIRECTORY">
+            <value>{secondary_orbitloc}</value>
+        </property>
+    </component>"""
+
+    print(secondary_xml)
+
+    f = open("secondary.xml", "w")
+    f.write(secondary_xml)
+    f.close()
+
+    # stripmapApp.xml
+    print("\nstripmapApp.xml:")
+
+    # DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem"  # "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
+
+    stripmapApp_xml = f"""
+    <stripmapApp>
+        <component name="insar">
+            <property  name="Sensor name">ERS</property>
+            <component name="reference">
+                <catalog>reference.xml</catalog>
+            </component>
+            <component name="secondary">
+                <catalog>secondary.xml</catalog>
+            </component>
+            <property name="demFilename">{demfile}</property>
+            <property name="do denseoffsets">True</property>
+            <property name="regionOfInterest">[63.699855,63.583704,-19.476357,-19.205132]</property>
+        </component>
+    </stripmapApp>"""
+
+    print(stripmapApp_xml)
+
+    f = open("stripmapApp.xml", "w")
+    f.write(stripmapApp_xml)
+    f.close()
+
+    # stripmapApp.xml
+    print("\ndense.xml:")
+
+    # DEM_loc = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem"  # "/home/yad2/DEM/IslandsDEMv1.0_2x2m_zmasl_isn93_SouthMerge.tif"
+
+    dense_xml = f"""
+    <stripmapAppDenseAmpcor>
+        <component name="dense">
+            <property name="Ampcor window width">64</property>
+            <property name="Ampcor window height">256</property>
+            <property name="Ampcor search window width">10</property>
+            <property name="Ampcor search window height">40</property>
+            <property name="Ampcor skip width">128</property>
+            <property name="Ampcor skip height">32</property>
+        </component>
+    </stripmapAppDenseAmpcor>"""
+
+    print(dense_xml)
+
+    f = open("dense.xml", "w")
+    f.write(dense_xml)
+    f.close()
 
 def generate_files_Envisat_format(logger, file1, file2, demfile):
     import os

@@ -209,7 +209,7 @@ def argparse():
     )
     parser.add_argument(
         "--ignore-ampcor",
-        default=False,
+        default=True,
         action=argparse.BooleanOptionalAction,
         dest="ignore_ampcor",
         required=False,
@@ -232,8 +232,16 @@ def argparse():
         help="Determines whether to do dense Ampcor dense offsets as provided in the ISCE program.",
     )
     parser.add_argument(
-        "--autoRIFT",
+        "--vmap",
         default=True,
+        action=argparse.BooleanOptionalAction,
+        dest="vmap",
+        required=False,
+        help="Determines whether to run the vmap routine for pixel tracking.",
+    )
+    parser.add_argument(
+        "--autoRIFT",
+        default=False,
         action=argparse.BooleanOptionalAction,
         dest="autoRIFT",
         required=False,
@@ -241,7 +249,7 @@ def argparse():
     )
     parser.add_argument(
         "--geocode",
-        default=True,
+        default=False,
         action=argparse.BooleanOptionalAction,
         dest="geocode",
         required=False,
@@ -249,7 +257,7 @@ def argparse():
     )
     parser.add_argument(
         "--geocode-autoRIFT",
-        default=True,
+        default=False,
         action=argparse.BooleanOptionalAction,
         dest="geocodeAutoRIFT",
         required=False,
@@ -257,7 +265,7 @@ def argparse():
     )
     parser.add_argument(
         "--previews",
-        default=True,
+        default=False,
         action=argparse.BooleanOptionalAction,
         dest="preview",
         required=False,
@@ -317,6 +325,25 @@ def main():
         logger.log("isce_end", "ISCE finished")
     else:
         logger.log("ISCE_skip", "ISCE skipped...")
+        
+    ### Start vmap
+
+    if inps.vmap == True:       
+        logger.log("vmap_start", "Starting vmap")
+
+        ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93
+        ## EPSG:32627
+
+        os.system("./run_vmap.py --no-reproj")
+
+        # os.system(
+        #     "testGeogridOptical.py -m reference_geotiff/reference_warp.tif -s secondary_geotiff/secondary_warp.tif -d demLat_N63_N65_Lon_W022_W018.dem.ISN93"
+        # )
+
+        logger.log("vmap_end", "vmap finished")
+    else:
+        logger.log("vmap_skip", "vmap skipped...")
+
 
 
     ### Start autoRIFT
