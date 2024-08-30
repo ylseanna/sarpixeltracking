@@ -271,6 +271,15 @@ def argparse():
         required=False,
         help="Determines whether to generate previews of the .slc images for later visualisation (they are significantly downsampled)",
     )
+    parser.add_argument(
+        "-pre",
+        "--prefix_subfolder",
+        type=str,
+        dest="destSubPrefix",
+        default=None,
+        required=False,
+        help="Prefix for subfolders in copy destination.",
+    )
     return parser.parse_args()
 
 
@@ -412,7 +421,7 @@ def main():
         
         logger.log("copy_start", "Copying results to destination folder")
 
-        copy_to_dest(logger, inps.destination)
+        copy_to_dest(logger, inps.destination, inps.destSubPrefix)
 
         logger.log("copy_end", "Copying finished")
     else:

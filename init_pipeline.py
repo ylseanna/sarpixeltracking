@@ -18,6 +18,9 @@ def init(logger, file1, file2, demfile):
 
     os.system("rm -rf reference*")
     os.system("rm -rf secondary*")
+    os.system("rm -rf coreg_secondary*")
+    os.system("rm -rf geometry*")
+    os.system("rm -rf preview")
     os.system("rm *.xml")
 
     print("Files selected:\n" + file1 + "\n" + file2)

@@ -19,30 +19,32 @@ parser.add_argument(
     "--folder",
     dest="folder",
     type=str,
-    required=True,
+    required=False,
     help="Folder to save results to.",
 )
 inps = parser.parse_args()
 
 dem_file = "/home/data/DEM/LMI/ArcticDEM/v1/Iceland_10m.dem"
 
-frames = np.loadtxt("frames.txt", dtype=str)
+comment, frames1, frames2 = np.loadtxt("frames.txt", dtype=str, delimiter=",", unpack=True)
 
-if len(frames) < 2:
+if len(frames1) < 2:
     print("Insufficient frames provided")
     sys.exit()
 else:
-    print(f"{len(frames)} frames provided to compute, {len(frames) - 1} pair(s)")
-    for i in range(len(frames) - 1):
-        print(frames[i] + " -> " + frames[i + 1])
+    print(f"{len(frames1)} pairs provided to compute")
+    for i in range(len(frames1)):
+        print(frames1[i] + " -> " + frames2[i])
 
 response = input("\nRun the pipeline for this series of frames? [y, n]:")
 
 if response == "y":
     print("Starting series")
-    for i in range(len(frames) - 1):
-        command = f"./pixel_tracking.py -f1 {frames[i]} -f2 {frames[i + 1]} -d {dem_file} -dest ~/PixelTrackingRuns/{inps.folder} --ignore-ampcor"
-
+    for i in range(len(frames1)): 
+        
+        command = f"./pixel_tracking_pipeline.py  -f1 {frames1[i]} -f2 {frames2[i]} -d {dem_file} -dest ../vmappixeltrackingresults -pre {comment[i]}_"
+        print(command)
+        
         print("\nRun #" + str(i) + ":\n")
         os.system(command)
 else:

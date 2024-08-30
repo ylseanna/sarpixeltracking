@@ -1,4 +1,4 @@
-def copy_to_dest(logger, destination):
+def copy_to_dest(logger, destination, copyDestPre):
     import json
     import os
     from glob import glob
@@ -16,7 +16,12 @@ def copy_to_dest(logger, destination):
     reference = logdata["frame_metadata"][0]["reference"]
     secondary = logdata["frame_metadata"][1]["secondary"]
     
-    subfolder = reference['begintime'][:10].replace("-", "")+'-'+secondary['begintime'][:10].replace("-", "")
+    if copyDestPre == None:
+        subfolder = reference['begintime'][:10].replace("-", "")+'-'+secondary['begintime'][:10].replace("-", "")
+    else:
+        subfolder = copyDestPre+reference['begintime'][:10].replace("-", "")+'-'+secondary['begintime'][:10].replace("-", "")
+    
+    
     
     # subfolder = "test_folder"
 
