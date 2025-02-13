@@ -1,0 +1,29 @@
+name: pixeltracking
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - mamba
+  - isce2
+  - ca-certificates
+  - certifi
+  - openssl
+  - jupyter
+  - matplotlib
+  - autorift
+  - geographiclib
+  - pygmt
+  - astropy
+  - photutils
+  - numba
+  - cartopy
+  - gdal
+  - pyproj
+  - netcdf4
+  - rasterio
+  - proj-data
+  - proj-datumgrid-europe
+variables:
+  ISCE_HOME: 
+    /home/yad2/.conda/envs/PixelTracking/pkgs/isce2-2.6.3-py310h04680ef_0/lib/python3.10/site-packages/isce

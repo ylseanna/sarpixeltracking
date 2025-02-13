@@ -71,12 +71,12 @@ class Logger:
             json.dump(json_object, file, indent=4)
 
         print(f"\n{t} - {description}\n")
-    
+
     def addFrameMetadata(self, frame_name, frame_data):
         import json
 
         logdata = {
-            frame_name : frame_data,
+            frame_name: frame_data,
         }
 
         with open("log.json", "r+") as file:
@@ -87,7 +87,6 @@ class Logger:
             file.seek(0)
             # convert back to json.
             json.dump(json_object, file, indent=4)
-
 
     def error(self, exctype, value, traceback):
         import json
@@ -141,8 +140,6 @@ def ErrorHandling(logger):
 
     sys.exc_info = attach_hook(log_exception, sys.exc_info)
     sys.excepthook = attach_hook(log_exception, sys.excepthook)
-
-
 
 
 ### Main functions
@@ -283,7 +280,6 @@ def argparse():
     return parser.parse_args()
 
 
-
 ### Main loop
 
 
@@ -310,10 +306,10 @@ def main():
     logger.log("start", "Starting program")
 
     ### INITIALISATION
-    
+
     if inps.init == True:
         from init_pipeline import init
-        
+
         logger.log("init_start", "Starting initialisation")
 
         init(logger, inps.file1, inps.file2, inps.DEM_file)
@@ -326,7 +322,7 @@ def main():
 
     if inps.isce == True:
         from run_isce import runISCE
-        
+
         logger.log("isce_start", "Starting ISCE")
 
         runISCE(logger, inps)
@@ -354,12 +350,11 @@ def main():
         logger.log("vmap_skip", "vmap skipped...")
 
 
-
     ### Start autoRIFT
 
     if inps.autoRIFT == True:
         from run_autorift import runAutoRIFT
-        
+
         logger.log("autoRIFT_start", "Starting AutoRIFT")
 
         ## gdalwarp -r bilinear -t_srs EPSG:3057 -of GTiff demLat_N63_N65_Lon_W022_W018.dem.wgs84 demLat_N63_N65_Lon_W022_W018.dem.ISN93
@@ -379,7 +374,7 @@ def main():
 
     if inps.geocode == True:
         from geocode_outputs import geocode_offsets
-        
+
         logger.log("geocode_start", "Starting geocoding offsets")
 
         geocode_offsets(inps)
@@ -387,12 +382,12 @@ def main():
         logger.log("geocode_end", "Geocoding offsets finished")
     else:
         logger.log("geocode_skip", "Geocoding offsets skipped...")
-        
+
     ### Geocode offsets
 
     if inps.geocodeAutoRIFT == True:
         from geocode_outputs import geocode_autoRIFT
-        
+
         logger.log("geocode_autoRIFT_start", "Starting geocoding autoRIFT")
 
         geocode_autoRIFT(inps)
@@ -405,7 +400,7 @@ def main():
 
     if inps.preview == True:
         from geocode_outputs import generate_previews
-        
+
         logger.log("previews_start", "Starting generating previews")
 
         generate_previews()
@@ -418,7 +413,7 @@ def main():
 
     if inps.destination != None:
         from copy_to_dest import copy_to_dest
-        
+
         logger.log("copy_start", "Copying results to destination folder")
 
         copy_to_dest(logger, inps.destination, inps.destSubPrefix)
