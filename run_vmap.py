@@ -72,7 +72,13 @@ inps = parser.parse_args()
 
 
 def generateGeotiff(
-    array, out_filename, folder, geometry, **kwargs
+    array,
+    out_filename,
+    folder,
+    geometry,
+    band_description=None,
+    downsample=None,
+    **kwargs,
 ):  # no extension on filename
     import os
     from osgeo import gdal, osr
@@ -90,8 +96,8 @@ def generateGeotiff(
 
     height, width = np.shape(array)
 
-    EPSG = 4326 #8086 #9039  # 3057
-    
+    EPSG = 4326  # 8086 #9039  # 3057
+
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(EPSG)
 
@@ -144,7 +150,6 @@ def generateGeotiff(
                 {os.path.join(folder, out_filename + '_uncompressed.tif')} \
                 {os.path.join(folder, out_filename + '.tif')}"
         )
-
 
     os.system(f"rm -rf {os.path.join(folder, out_filename + '_untranslated.tif')}")
     os.system(f"rm -rf {os.path.join(folder, out_filename + '_unwarped.tif')}")
@@ -214,13 +219,11 @@ def generateGeometry():
     return Geometry
 
 
-
 folder1 = "reference_tif"
 folder2 = "coreg_secondary_tif"
 
 if inps.geocode == True:
     Geometry = generateGeometry()
-
 
     os.system(f"rm -rf {folder1}")
     os.mkdir(folder1)
@@ -233,12 +236,10 @@ if inps.geocode == True:
         fn1 = "reference_slc/reference.slc"
 
     fn2 = "coregisteredSlc/refined_coreg.slc"
-    
 
     ### Reference
-    
-    print("\n - Reference input file:\n")
 
+    print("\n - Reference input file:\n")
 
     in_ds = gdal.Open(fn1, gdal.GA_ReadOnly)
     in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
@@ -246,12 +247,11 @@ if inps.geocode == True:
 
     out_filename1 = "reference"
 
-    generateGeotiffvmap(in_array, out_filename1, folder1, Geometry)
+    generateGeotiff(in_array, out_filename1, folder1, Geometry)
 
     ### Secondary
-    
-    print("\n - Secondary input file:\n")
 
+    print("\n - Secondary input file:\n")
 
     in_ds = gdal.Open(fn2, gdal.GA_ReadOnly)
     in_array = np.fliplr(np.abs(in_ds.GetRasterBand(1).ReadAsArray()))
@@ -259,22 +259,20 @@ if inps.geocode == True:
 
     out_filename2 = "secondary"
 
-    generateGeotiffvmap(in_array, out_filename2, folder2, Geometry)
-    
+    generateGeotiff(in_array, out_filename2, folder2, Geometry)
+
     ### Geometry rasters
-    
+
     print("\n - Generating geometry files in same projection:\n")
 
-    
     geometry_folder = "geometry_tif"
-    
+
     os.system(f"rm -rf {geometry_folder}")
     os.mkdir(geometry_folder)
-    
-    ### LON
-    
-    print(" - Longitude file:\n")
 
+    ### LON
+
+    print(" - Longitude file:\n")
 
     lon_fn = "geometry/lon.rdr.full"
 
@@ -284,8 +282,8 @@ if inps.geocode == True:
 
     out_filename_lon = "lon"
 
-    generateGeotiffvmap(in_array, out_filename_lon, geometry_folder, Geometry)
-    
+    generateGeotiff(in_array, out_filename_lon, geometry_folder, Geometry)
+
     ### LAT
 
     print("\n - Latitude file:\n")
@@ -298,8 +296,8 @@ if inps.geocode == True:
 
     out_filename_lat = "lat"
 
-    generateGeotiffvmap(in_array, out_filename_lat, geometry_folder, Geometry)
-    
+    generateGeotiff(in_array, out_filename_lat, geometry_folder, Geometry)
+
     ### LAT
 
     print("\n - Elevation file:\n")
@@ -312,8 +310,8 @@ if inps.geocode == True:
 
     out_filename_z = "z"
 
-    generateGeotiffvmap(in_array, out_filename_z, geometry_folder, Geometry)
-    
+    generateGeotiff(in_array, out_filename_z, geometry_folder, Geometry)
+
     ### LOS
 
     print("\n - LOS files:\n")
@@ -321,32 +319,38 @@ if inps.geocode == True:
     lat_fn = "geometry/los.rdr.full"
 
     in_ds = gdal.Open(lat_fn, gdal.GA_ReadOnly)
-    
+
     in_array = np.fliplr(in_ds.GetRasterBand(1).ReadAsArray())
-    
+
     out_filename_inc = "inc"
-    
-    generateGeotiffvmap(in_array, out_filename_inc, geometry_folder, Geometry, band_description="Incidence Angle (+vertical)")
-    
+
+    generateGeotiff(
+        in_array,
+        out_filename_inc,
+        geometry_folder,
+        Geometry,
+        band_description="Incidence Angle (+vertical)",
+    )
+
     in_array = np.fliplr(in_ds.GetRasterBand(2).ReadAsArray())
-    
+
     out_filename_az = "az"
-    
-    generateGeotiffvmap(in_array, out_filename_az, geometry_folder, Geometry, band_description="Azimuth Angle (degrees from North, anti-clockwise)")
-    
+
+    generateGeotiff(
+        in_array,
+        out_filename_az,
+        geometry_folder,
+        Geometry,
+        band_description="Azimuth Angle (degrees from North, anti-clockwise)",
+    )
+
     in_ds = None
-
-    
-
-    
-    
 
 
 ### location: /home/yadevries/anaconda3/lib/python3.10/site-packages/vmap added to path, make sure to they are executable
 ## to try: gdal_translate -co TILED=yes -co BLOCKXSIZE=256 -co BLOCKYSIZE=256 input.tif output.tif
 
-if inps.vmap == True:
-if inps.vmap == True:
+if inps.vmap:
     cwd = os.getcwd()
 
     command = f"vmap.py {os.path.join(cwd, folder1, 'reference.tif')} {os.path.join(cwd, folder2, 'secondary.tif')} -kernel 35 -erode 512 -refinement 2 -dt none"

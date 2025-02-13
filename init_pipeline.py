@@ -24,29 +24,31 @@ def init(logger, file1, file2, demfile):
     os.system("rm *.xml")
 
     print("Files selected:\n" + file1 + "\n" + file2)
-    
+
     ### QUERY FILES and ASSIGN REF AND SEC
 
     print("\n - Querying files...")
 
     if file1.endswith(".CEOS.tar.gz"):
         print("\nERS 1,2 or EnVISAT files in old raw data format detected\n")
-        
-        generate_files_ERS_CEOS(logger, file1, file2, demfile) # NEEDS TO BE ADJUSTED TO NOT USE THE DATABASE
+
+        generate_files_ERS_CEOS(
+            logger, file1, file2, demfile
+        )  # NEEDS TO BE ADJUSTED TO NOT USE THE DATABASE
     if file1.endswith((".E1", ".E2", ".N1")):
         print("\nEnVISAT data format detected\n")
 
         generate_files_Envisat_format(logger, file1, file2, demfile)
     if os.path.basename(file1).startswith(("TSX", "TDX")):
         print("TerraSAR-X data format detected\n")
-        
+
         generate_files_TSX_format(logger, file1, file2, demfile)
+
 
 def generate_files_ERS_CEOS(logger, file1, file2, demfile):
     import os
     from datetime import datetime
     from glob import glob
-    
 
     reference = {}
     secondary = {}
@@ -70,14 +72,13 @@ def generate_files_ERS_CEOS(logger, file1, file2, demfile):
         secondary["platform"] = "ERS-1"
     elif basef2.startswith("ER02"):
         secondary["platform"] = "ERS-2"
-        
-    from pygeotools.lib import timelib
 
+    from pygeotools.lib import timelib
 
     reference["begintime"] = timelib.fn_getdatetime_list(basef1)[0]
 
     secondary["begintime"] = timelib.fn_getdatetime_list(basef2)[0]
-    
+
     print(
         "Reference:\n  Name:          "
         + reference["filename"]
@@ -101,17 +102,14 @@ def generate_files_ERS_CEOS(logger, file1, file2, demfile):
 
     timedelta = secondary["begintime"] - reference["begintime"]
 
-    print(
-        "\nPair information:\n  Baseline:      "
-        + str(timedelta)
-    )
+    print("\nPair information:\n  Baseline:      " + str(timedelta))
 
     reference["begintime"] = reference["begintime"].isoformat()
     secondary["begintime"] = secondary["begintime"].isoformat()
 
     logger.addFrameMetadata("reference", reference)
     logger.addFrameMetadata("secondary", secondary)
-    
+
     # Folders:
 
     print("\n - Generating folder structure...")
@@ -131,8 +129,7 @@ def generate_files_ERS_CEOS(logger, file1, file2, demfile):
         files = glob("./secondary/*")
         for f in files:
             os.remove(f)
-            
-            
+
     print("\n - Unpacking images...")
 
     print("\nReference:\n")
@@ -142,8 +139,6 @@ def generate_files_ERS_CEOS(logger, file1, file2, demfile):
     print("\nSecondary:\n")
 
     os.system(f"tar -zvxf {secondary['fileloc']} --directory ./secondary")
-    
-    
 
     # Generate XML-files
 
@@ -261,6 +256,7 @@ def generate_files_ERS_CEOS(logger, file1, file2, demfile):
     f.write(dense_xml)
     f.close()
 
+
 def generate_files_Envisat_format(logger, file1, file2, demfile):
     import os
     from datetime import datetime
@@ -372,7 +368,7 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
         </property>"""
 
         reference_file = f"""<property name="IMAGEFILE">
-            <value>{reference['fileloc']}</value>
+            <value>{reference["fileloc"]}</value>
         </property>"""
 
         sensor_name = "ERS_EnviSAT"
@@ -387,13 +383,13 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
         </propertcdy>"""
 
         reference_file = f"""<property name="IMAGEFILE">
-            <value>{reference['fileloc']}</value>
+            <value>{reference["fileloc"]}</value>
         </property>"""
 
         sensor_name = "ERS_EnviSAT"
     elif reference["platform"] == "Envisat":
         reference_file = f"""<property name="IMAGEFILE">
-            <value>{reference['fileloc']}</value>
+            <value>{reference["fileloc"]}</value>
         </property>"""
 
         reference_orbit = f"""<property name="INSTRUMENTFILE">
@@ -425,17 +421,17 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
         secondary_orbitloc = "/home/data/orbits/ODR/ERS1"
 
         secondary_fileloc = f"""<property name="IMAGEFILE">
-            <value>{secondary['fileloc']}</value>
+            <value>{secondary["fileloc"]}</value>
         </property>"""
     elif secondary["platform"] == "ERS-2":
         secondary_orbitloc = "/home/data/orbits/ODR/ERS2"
 
         secondary_fileloc = f"""<property name="IMAGEFILE">
-            <value>{secondary['fileloc']}</value>
+            <value>{secondary["fileloc"]}</value>
         </property>"""
     elif secondary["platform"] == "Envisat":
         secondary_file = f"""<property name="IMAGEFILE">
-            <value>{secondary['fileloc']}</value>
+            <value>{secondary["fileloc"]}</value>
         </property>"""
 
         secondary_orbit = f"""<property name="INSTRUMENTFILE">
@@ -512,7 +508,6 @@ def generate_files_Envisat_format(logger, file1, file2, demfile):
 
 
 def generate_files_TSX_format(logger, file1, file2, demfile):
-    
     import os
     from datetime import datetime
 
@@ -528,10 +523,10 @@ def generate_files_TSX_format(logger, file1, file2, demfile):
     basef1, extf1 = os.path.splitext(os.path.basename(file1))
 
     basef2, extf2 = os.path.splitext(os.path.basename(file2))
-    
+
     reference["platform"] = "TSX"
     secondary["platform"] = "TSX"
-        
+
     reference["begintime"] = datetime(
         year=int(basef1.split("_")[-2][:4]),
         month=int(basef1.split("_")[-2][4:6]),
@@ -540,7 +535,7 @@ def generate_files_TSX_format(logger, file1, file2, demfile):
         minute=int(basef1.split("_")[-2][11:13]),
         second=int(basef1.split("_")[-2][13:15]),
     )
-    
+
     secondary["begintime"] = datetime(
         year=int(basef2.split("_")[-2][:4]),
         month=int(basef2.split("_")[-2][4:6]),
@@ -549,7 +544,7 @@ def generate_files_TSX_format(logger, file1, file2, demfile):
         minute=int(basef2.split("_")[-2][11:13]),
         second=int(basef2.split("_")[-2][13:15]),
     )
-    
+
     print(
         "Reference:\n  Name:          "
         + reference["filename"]
@@ -573,18 +568,14 @@ def generate_files_TSX_format(logger, file1, file2, demfile):
 
     timedelta = secondary["begintime"] - reference["begintime"]
 
-    print(
-        "\nPair information:\n  Baseline:      "
-        + str(timedelta)
-    )
-    
+    print("\nPair information:\n  Baseline:      " + str(timedelta))
+
     reference["begintime"] = reference["begintime"].isoformat()
     secondary["begintime"] = secondary["begintime"].isoformat()
 
     logger.addFrameMetadata("reference", reference)
     logger.addFrameMetadata("secondary", secondary)
-    
-    
+
     print("\nreference.xml:")
 
     reference_xml = f"""
